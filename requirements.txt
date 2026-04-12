@@ -1,0 +1,14 @@
+# SOC Alert Processing System
+# Windows PC (Flask Server)
+flask>=3.0.0
+requests>=2.31.0
+waitress>=3.0.0
+scikit-learn>=1.5.0
+pandas>=2.2.0
+joblib>=1.4.0
+numpy>=1.26.0
+paramiko>=3.4.0
+
+# Optional: production WSGI server (thay thế Flask dev server)
+# gunicorn>=21.2.0   # Linux/Mac only
+# waitress>=3.0.0    # Windows compatible

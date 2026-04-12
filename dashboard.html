@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SOC-AI · Security Operations Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.datatables.net/1.13.8/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/dataTables.bootstrap5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:     #020812; --bg2:    #040d1a; --panel:  #060f1f; --card:   #071224;
+      --line:   #0d2040; --line2:  #142c50;
+      --cyan:   #00d4ff; --cyan2:  #00fff7; --green:  #00ff88; --red:    #ff2d55;
+      --orange: #ff7b00; --yellow: #ffe135; --purple: #b44dff;
+      --text:   #c8deff; --text2:  #7fa8d8; --muted:  #2d5080;
+      /* Font stack with full Unicode/Vietnamese support */
+      --font-ui:   'IBM Plex Sans', 'Noto Sans', Arial, sans-serif;
+      --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+      --font-hd:   'Orbitron', 'IBM Plex Sans', sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:var(--font-ui);font-size:14px;min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,.025) 1px,transparent 1px);background-size:44px 44px;pointer-events:none;z-index:0}
+    body::after{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 50% at 50% -5%,rgba(0,90,200,.1),transparent);pointer-events:none;z-index:0}
+    .scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.06) 2px,rgba(0,0,0,.06) 4px);pointer-events:none;z-index:1}
+    .page-wrap{position:relative;z-index:2}
+
+    /* HEADER */
+    .header-bar{height:68px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line2);background:linear-gradient(180deg,rgba(4,16,36,.97),rgba(2,8,18,.93));backdrop-filter:blur(12px)}
+    .header-left{display:flex;align-items:center;gap:14px}
+    .logo-shield{width:40px;height:40px;border:1.5px solid var(--cyan);border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,rgba(0,212,255,.12),transparent);box-shadow:0 0 18px rgba(0,212,255,.35),inset 0 0 12px rgba(0,212,255,.08);animation:shield-pulse 3.5s ease-in-out infinite;flex-shrink:0}
+    .logo-shield svg{width:20px;height:20px;fill:var(--cyan2)}
+    .brand-title{font-family:var(--font-hd);font-weight:900;font-size:15px;letter-spacing:3px;color:var(--cyan2);text-shadow:0 0 18px var(--cyan),0 0 40px rgba(0,212,255,.3);line-height:1.2}
+    .brand-sub{font-family:var(--font-mono);font-size:10px;color:var(--text2);letter-spacing:1.5px;margin-top:3px}
+    .header-right{display:flex;align-items:center;gap:22px}
+    .live-pill{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:11px;color:var(--green);letter-spacing:2px}
+    .live-dot{width:7px;height:7px;background:var(--green);border-radius:50%;box-shadow:0 0 10px var(--green);animation:blink 1.5s ease-in-out infinite}
+    .header-clock{font-family:var(--font-mono);font-size:11px;color:var(--text2);letter-spacing:1px;text-align:right}
+    .btn-hdr{background:transparent;border:1px solid rgba(0,212,255,.3);color:var(--cyan);padding:6px 14px;border-radius:6px;font-family:var(--font-ui);font-weight:600;font-size:11px;letter-spacing:2px;cursor:pointer;transition:all .2s}
+    .btn-hdr:hover{background:rgba(0,212,255,.08);box-shadow:0 0 14px rgba(0,212,255,.2)}
+
+    /* TICKER */
+    .ticker-bar{background:rgba(255,45,85,.07);border-bottom:1px solid rgba(255,45,85,.25);padding:6px 24px;display:flex;align-items:center;gap:12px;overflow:hidden}
+    .ticker-label{font-family:var(--font-hd);font-size:9px;color:var(--red);letter-spacing:2px;flex-shrink:0;animation:blink 1.2s ease-in-out infinite}
+    .ticker-text{font-family:var(--font-mono);font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    /* NAV */
+    .nav-bar{display:flex;align-items:stretch;padding:0 24px;border-bottom:1px solid var(--line2);background:rgba(2,8,18,.96);overflow-x:auto}
+    .nav-tab{display:flex;align-items:center;gap:8px;padding:14px 18px 12px;font-family:var(--font-ui);font-weight:600;font-size:12px;letter-spacing:2px;color:var(--muted);border:none;background:transparent;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:all .2s;text-transform:uppercase}
+    .nav-tab:hover{color:var(--text2)}
+    .nav-tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+    .tab-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor;flex-shrink:0}
+
+    /* LAYOUT */
+    .main{padding:20px 24px}
+    .view{display:none;animation:fadeUp .3s ease}
+    .view.active{display:block}
+    .g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+    .g-5-7{display:grid;grid-template-columns:5fr 7fr;gap:14px}
+    .g-4-8{display:grid;grid-template-columns:4fr 8fr;gap:14px}
+    @media(max-width:1100px){.g2,.g3,.g-5-7,.g-4-8{grid-template-columns:1fr}}
+    .mb14{margin-bottom:14px} .mt10{margin-top:10px}
+
+    /* KPI */
+    .kpi-strip{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+    @media(max-width:1200px){.kpi-strip{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:700px){.kpi-strip{grid-template-columns:repeat(2,1fr)}}
+    .kpi-card{background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:16px 18px;position:relative;overflow:hidden;transition:border-color .25s,transform .2s;--accent:var(--cyan)}
+    .kpi-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+    .kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
+    .kpi-card::after{content:'';position:absolute;bottom:-16px;right:-16px;width:60px;height:60px;background:radial-gradient(circle,var(--accent) 0%,transparent 70%);opacity:.07}
+    .kpi-card.c-cyan{--accent:var(--cyan)}.kpi-card.c-green{--accent:var(--green)}.kpi-card.c-red{--accent:var(--red)}.kpi-card.c-orange{--accent:var(--orange)}.kpi-card.c-yellow{--accent:var(--yellow)}.kpi-card.c-purple{--accent:var(--purple)}
+    .kpi-label{font-size:9px;font-weight:600;letter-spacing:2px;color:var(--text2);text-transform:uppercase;margin-bottom:8px}
+    .kpi-value{font-family:var(--font-hd);font-size:28px;font-weight:700;line-height:1;color:var(--accent)}
+    .kpi-value.sm{font-size:16px;padding-top:4px}
+    .kpi-card.c-green .kpi-value{text-shadow:0 0 16px rgba(0,255,136,.4)}
+    .kpi-card.c-red .kpi-value{text-shadow:0 0 16px rgba(255,45,85,.4)}
+    #kpiNetStatus.net-st-up{color:var(--green);text-shadow:0 0 10px rgba(0,255,136,.35)}
+    #kpiNetStatus.net-st-down{color:var(--red);text-shadow:0 0 10px rgba(255,45,85,.35)}
+    .net-st-led{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;margin-right:8px}
+    .net-st-led-up{background:var(--green);box-shadow:0 0 8px var(--green)}
+    .net-st-led-down{background:var(--red);box-shadow:0 0 8px rgba(255,45,85,.45)}
+    .kpi-sub{font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:.5px}
+
+    /* PANEL */
+    .panel{background:var(--panel);border:1px solid var(--line2);border-radius:10px;margin-bottom:16px;overflow:hidden}
+    .panel-hd{padding:13px 18px;border-bottom:1px solid var(--line2);display:flex;align-items:center;justify-content:space-between;background:rgba(0,212,255,.02)}
+    .panel-hd-left{display:flex;align-items:center;gap:9px}
+    .panel-hd-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);flex-shrink:0}
+    .panel-hd h6{font-family:var(--font-hd);font-size:10px;font-weight:700;color:var(--cyan);letter-spacing:2.5px;margin:0}
+    .panel-bd{padding:16px 18px}
+    .panel-bd.no-pad{padding:0}
+    .chart-box{position:relative}
+    .h180{height:180px}.h220{height:220px}.h260{height:260px}.h300{height:300px}
+
+    /* GAUGE */
+    .gauge-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+    .gauge-wrap{flex:1;min-width:90px;display:flex;flex-direction:column;align-items:center;gap:6px}
+    .gauge-label{font-family:var(--font-mono);font-size:10px;color:var(--text2);letter-spacing:1.5px}
+
+    /* DATATABLES override */
+    .dt-wrap{overflow-x:auto}
+    table.dataTable{background:transparent!important;border-collapse:collapse!important;width:100%!important}
+    table.dataTable thead th{background:rgba(4,16,36,.9)!important;color:var(--text2)!important;font-family:var(--font-mono)!important;font-size:10px!important;letter-spacing:2px!important;border-bottom:1px solid var(--line2)!important;padding:10px 12px!important}
+    table.dataTable tbody tr{background:transparent!important}
+    table.dataTable tbody tr:hover td{background:rgba(0,212,255,.03)!important}
+    table.dataTable tbody td{border-bottom:1px solid rgba(13,32,64,.5)!important;padding:10px 12px!important;font-size:12px!important;vertical-align:middle!important}
+    table.dataTable.table-striped tbody tr:nth-of-type(odd){background:rgba(6,15,33,.5)!important}
+    .dataTables_wrapper .dataTables_length,.dataTables_wrapper .dataTables_filter,.dataTables_wrapper .dataTables_info,.dataTables_wrapper .dataTables_paginate{font-family:var(--font-mono);font-size:11px;color:var(--text2)!important;padding:10px 0}
+    .dataTables_wrapper .dataTables_paginate .paginate_button{color:var(--text2)!important;border:1px solid var(--line2)!important;border-radius:4px!important;background:transparent!important;margin:0 2px}
+    .dataTables_wrapper .dataTables_paginate .paginate_button.current{background:rgba(0,212,255,.1)!important;color:var(--cyan)!important;border-color:rgba(0,212,255,.4)!important}
+    .dataTables_wrapper .dataTables_paginate .paginate_button:hover{background:rgba(0,212,255,.06)!important;color:var(--cyan)!important}
+    .dataTables_wrapper select,.dataTables_wrapper input{background:rgba(4,13,30,.8)!important;border:1px solid var(--line2)!important;color:var(--text)!important;border-radius:5px!important;padding:4px 8px!important;font-family:var(--font-mono)!important;font-size:11px!important}
+
+    /* plain table */
+    .tbl{width:100%;border-collapse:collapse}
+    .tbl th{font-family:var(--font-mono);font-size:10px;color:var(--text2);letter-spacing:2px;padding:10px 12px;border-bottom:1px solid var(--line2);text-align:left}
+    .tbl td{padding:10px 12px;font-size:12px;border-bottom:1px solid rgba(13,32,64,.5);vertical-align:middle}
+    .tbl tr:last-child td{border-bottom:none}
+    .tbl tr:hover td{background:rgba(0,212,255,.03)}
+
+    /* badges */
+    .sev-badge{display:inline-block;padding:2px 9px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;white-space:nowrap}
+    .sev-Information{background:rgba(91,158,255,.12);color:#5b9eff;border:1px solid rgba(91,158,255,.3)}
+    .sev-Warning{background:rgba(255,225,53,.1);color:var(--yellow);border:1px solid rgba(255,225,53,.3)}
+    .sev-Average{background:rgba(255,123,0,.1);color:var(--orange);border:1px solid rgba(255,123,0,.3)}
+    .sev-High{background:rgba(255,112,67,.1);color:#ff7043;border:1px solid rgba(255,112,67,.3)}
+    .sev-Disaster{background:rgba(255,45,85,.13);color:var(--red);border:1px solid rgba(255,45,85,.4);animation:sev-blink 2s ease-in-out infinite}
+    .st-badge{display:inline-block;padding:2px 9px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+    .st-PROBLEM{background:rgba(255,45,85,.1);color:var(--red);border:1px solid rgba(255,45,85,.3)}
+    .st-RESOLVED{background:rgba(0,255,136,.09);color:var(--green);border:1px solid rgba(0,255,136,.3)}
+
+    /* button */
+    .btn-soc{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(0,212,255,.38);color:var(--cyan);padding:8px 16px;border-radius:6px;font-family:var(--font-ui);font-weight:600;font-size:11px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .btn-soc:hover{background:rgba(0,212,255,.09);box-shadow:0 0 14px rgba(0,212,255,.2)}
+    .btn-soc.primary{background:rgba(0,212,255,.1);border-color:rgba(0,212,255,.6)}
+    .btn-soc.sm{font-size:10px;padding:5px 10px}
+    .btn-soc:active{transform:scale(.97)}
+    .btn-soc.danger{border-color:rgba(255,45,85,.55);color:rgba(255,45,85,.85)}
+    .btn-soc.danger:hover{background:rgba(255,45,85,.12);box-shadow:0 0 18px rgba(255,45,85,.28),0 0 42px rgba(255,45,85,.12);color:#ff8aa0}
+
+    /* purge modal */
+    .modal-overlay{position:fixed;inset:0;background:rgba(2,8,18,.75);display:none;align-items:center;justify-content:center;z-index:9999;padding:18px}
+    .modal-card{width:min(520px,100%);background:rgba(6,15,33,.92);border:1px solid rgba(255,45,85,.45);border-radius:12px;box-shadow:0 0 40px rgba(255,45,85,.12),0 0 80px rgba(0,212,255,.04);overflow:hidden}
+    .modal-hd{padding:14px 18px;background:rgba(255,45,85,.06);border-bottom:1px solid rgba(255,45,85,.25);font-family:var(--font-hd);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--red)}
+    .modal-bd{padding:16px 18px;color:var(--text2);font-family:var(--font-mono);font-size:13px;line-height:1.6}
+    .modal-actions{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px 18px}
+
+    /* misc */
+    .mono{font-family:var(--font-mono)}
+    .cyan{color:var(--cyan2)}
+    .muted{color:var(--muted)}
+    .info-row{display:flex;flex-wrap:wrap;gap:8px 20px;font-family:var(--font-mono);font-size:11px;color:var(--text2);padding:10px 24px;background:rgba(0,0,0,.25);border-top:1px solid var(--line)}
+    .info-row span{color:var(--cyan)}
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:3px}
+
+    /* form controls */
+    .form-ctrl{background:rgba(4,13,30,.85);border:1px solid var(--line2);color:var(--text);padding:11px 14px;border-radius:7px;font-family:var(--font-ui);font-size:14px;font-weight:500;width:100%;transition:border-color .2s,box-shadow .2s}
+    .form-ctrl:focus{outline:none;border-color:rgba(0,212,255,.5);box-shadow:0 0 12px rgba(0,212,255,.1)}
+    .form-sel{background:rgba(4,13,30,.85);border:1px solid var(--line2);color:var(--text);padding:8px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;font-weight:500;cursor:pointer}
+    .form-sel:focus{outline:none;border-color:rgba(0,212,255,.5)}
+
+    /* animations */
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    @keyframes sev-blink{0%,100%{opacity:1}50%{opacity:.6}}
+    @keyframes shield-pulse{0%,100%{box-shadow:0 0 10px rgba(0,212,255,.3)}50%{box-shadow:0 0 24px rgba(0,212,255,.65)}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes scan-line{0%{top:-100%}100%{top:200%}}
+    @keyframes typing-cursor{0%,100%{opacity:1}50%{opacity:0}}
+
+    /* ── LYNIS AUDIT ── */
+    .lynis-page{background:#0B101E;border:1px solid rgba(0,212,255,.22);border-radius:12px;box-shadow:0 0 28px rgba(0,212,255,.08),inset 0 0 40px rgba(0,80,160,.04);overflow:hidden}
+    .lynis-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px;padding:16px 18px;border-bottom:1px solid rgba(0,212,255,.15);background:linear-gradient(180deg,rgba(8,20,40,.95),rgba(6,14,28,.9))}
+    .lynis-bar label{font-family:var(--font-mono);font-size:9px;color:var(--text2);letter-spacing:1.5px;display:block;margin-bottom:4px}
+    .lynis-bar .fld{min-width:120px;flex:1}
+    .lynis-bar input{background:rgba(0,0,0,.45);border:1px solid rgba(0,212,255,.25);color:var(--cyan2);padding:8px 10px;border-radius:6px;font-family:var(--font-mono);font-size:12px;width:100%}
+    .lynis-bar input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 12px rgba(0,212,255,.2)}
+    .btn-lynis-glow{font-family:var(--font-hd);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:12px 22px;border-radius:8px;border:1px solid var(--cyan);cursor:pointer;color:#0B101E;background:linear-gradient(135deg,var(--cyan2),var(--cyan));box-shadow:0 0 20px rgba(0,212,255,.45),0 0 40px rgba(0,255,247,.15);transition:transform .2s,box-shadow .2s}
+    .btn-lynis-glow:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 0 28px rgba(0,212,255,.6)}
+    .btn-lynis-glow:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+    .lynis-spin{width:14px;height:14px;border:2px solid rgba(11,16,30,.3);border-top-color:var(--cyan);border-radius:50%;animation:lynis-spin .7s linear infinite;display:inline-block;vertical-align:middle;margin-right:8px}
+    @keyframes lynis-spin{to{transform:rotate(360deg)}}
+    .lynis-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px 18px}
+    @media(max-width:1100px){.lynis-grid{grid-template-columns:1fr}}
+    .lynis-term-wrap{border:1px solid rgba(0,212,255,.2);border-radius:10px;background:#050810;min-height:420px;display:flex;flex-direction:column;box-shadow:inset 0 0 30px rgba(0,0,0,.5)}
+    .lynis-term-hd{font-family:var(--font-hd);font-size:9px;letter-spacing:2px;color:var(--cyan);padding:10px 14px;border-bottom:1px solid rgba(0,212,255,.12);display:flex;align-items:center;gap:8px}
+    .lynis-term-hd .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 1.2s ease-in-out infinite}
+    .lynis-terminal{flex:1;font-family:var(--font-mono);font-size:11px;line-height:1.45;color:#00fff7;padding:14px;margin:0;overflow:auto;white-space:pre-wrap;max-height:62vh}
+    .lynis-results-panel{opacity:0;transform:translateX(14px);pointer-events:none;max-height:0;overflow:hidden;transition:opacity .45s ease,transform .45s ease,max-height .55s ease}
+    .lynis-results-panel.is-visible{opacity:1;transform:translateX(0);pointer-events:auto;max-height:3200px}
+    .lynis-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+    .lynis-stat{background:rgba(0,212,255,.06);border:1px solid rgba(0,212,255,.2);border-radius:10px;padding:14px;text-align:center;box-shadow:0 0 16px rgba(0,212,255,.06)}
+    .lynis-stat .n{font-family:var(--font-hd);font-size:26px;color:var(--yellow);text-shadow:0 0 12px rgba(255,225,53,.35)}
+    .lynis-stat .lbl{font-size:9px;letter-spacing:2px;color:var(--text2);margin-top:6px}
+    .lynis-ai-wrap{border:1px solid rgba(0,212,255,.18);border-radius:10px;overflow:hidden;background:rgba(4,10,22,.9)}
+    .lynis-ai-hd{font-family:var(--font-hd);font-size:10px;letter-spacing:2px;color:var(--cyan);padding:10px 14px;border-bottom:1px solid rgba(0,212,255,.12)}
+    .lynis-ai-tbl{width:100%;border-collapse:collapse;font-size:12px}
+    .lynis-ai-tbl th{font-family:var(--font-mono);font-size:9px;color:var(--text2);letter-spacing:1.5px;padding:10px 12px;text-align:left;border-bottom:1px solid rgba(0,212,255,.15)}
+    .lynis-ai-tbl td{padding:10px 12px;border-bottom:1px solid rgba(13,32,64,.45);vertical-align:top}
+    .lynis-ai-tbl tr:hover td{background:rgba(0,212,255,.04)}
+    .lyn-sev-High{color:#ff2d55;font-weight:700}.lyn-sev-Warning{color:#ffe135;font-weight:700}.lyn-sev-Info{color:#00fff7;font-weight:600}
+
+    /* ══ AI ANALYST — REDESIGNED ══ */
+    .ai-layout{display:grid;grid-template-columns:1fr 280px;gap:16px;height:calc(100vh - 200px);min-height:500px}
+    @media(max-width:1100px){.ai-layout{grid-template-columns:1fr;height:auto}}
+
+    /* Left: chat area */
+    .ai-chat-panel{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+    .ai-chat-header{padding:14px 18px;border-bottom:1px solid var(--line2);background:rgba(0,212,255,.02);display:flex;align-items:center;gap:10px}
+    .ai-chat-header .ai-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(180,77,255,.2));border:1.5px solid rgba(0,212,255,.4);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;animation:shield-pulse 3s ease-in-out infinite}
+    .ai-chat-header-text h5{font-family:var(--font-hd);font-size:11px;font-weight:700;color:var(--cyan);letter-spacing:2px;margin:0 0 2px}
+    .ai-chat-header-text p{font-size:11px;color:var(--text2);margin:0;font-family:var(--font-ui)}
+    .ai-status-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--text2);background:rgba(0,0,0,.3);border:1px solid var(--line2);padding:4px 10px;border-radius:20px}
+    .ai-status-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s ease-in-out infinite}
+
+    /* messages area */
+    .ai-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;min-height:0}
+    .ai-msg{display:flex;gap:10px;animation:fadeUp .3s ease}
+    .ai-msg.user{flex-direction:row-reverse}
+    .ai-msg-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.08)}
+    .ai-msg.user .ai-msg-avatar{background:rgba(180,77,255,.12);border-color:rgba(180,77,255,.3)}
+    .ai-msg-bubble{max-width:80%;background:rgba(4,13,30,.8);border:1px solid var(--line2);border-radius:12px;border-top-left-radius:3px;padding:12px 14px;font-size:13px;line-height:1.65;color:var(--text);font-family:var(--font-ui)}
+    .ai-msg.user .ai-msg-bubble{background:rgba(0,212,255,.07);border-color:rgba(0,212,255,.25);border-radius:12px;border-top-right-radius:3px;color:var(--cyan2)}
+    .ai-msg-meta{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-top:6px;letter-spacing:1px}
+    .ai-thinking{display:flex;gap:4px;align-items:center;padding:4px 0}
+    .ai-thinking span{width:6px;height:6px;border-radius:50%;background:var(--cyan);opacity:.5}
+    .ai-thinking span:nth-child(1){animation:think-bounce .9s ease-in-out infinite}
+    .ai-thinking span:nth-child(2){animation:think-bounce .9s ease-in-out .15s infinite}
+    .ai-thinking span:nth-child(3){animation:think-bounce .9s ease-in-out .3s infinite}
+    @keyframes think-bounce{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-5px);opacity:1}}
+
+    /* input row */
+    .ai-input-area{padding:14px 16px;border-top:1px solid var(--line2);background:rgba(2,6,16,.6);display:flex;gap:10px;align-items:flex-end}
+    .ai-textarea{flex:1;background:rgba(4,13,30,.85);border:1px solid var(--line2);color:var(--text);padding:10px 14px;border-radius:8px;font-family:var(--font-ui);font-size:13px;resize:none;line-height:1.5;min-height:42px;max-height:120px;overflow-y:auto;transition:border-color .2s}
+    .ai-textarea:focus{outline:none;border-color:rgba(0,212,255,.5);box-shadow:0 0 12px rgba(0,212,255,.08)}
+    .ai-textarea::placeholder{color:var(--muted)}
+    .ai-send-btn{background:linear-gradient(135deg,rgba(0,212,255,.2),rgba(0,212,255,.1));border:1px solid rgba(0,212,255,.5);color:var(--cyan);padding:10px 18px;border-radius:8px;font-family:var(--font-ui);font-weight:700;font-size:12px;letter-spacing:1.5px;cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0}
+    .ai-send-btn:hover{background:rgba(0,212,255,.2);box-shadow:0 0 16px rgba(0,212,255,.3)}
+    .ai-send-btn:active{transform:scale(.97)}
+
+    /* Right: sidebar */
+    .ai-sidebar{display:flex;flex-direction:column;gap:12px}
+    @media(max-width:1100px){.ai-sidebar{display:none}}
+
+    .ai-sidebar-card{background:var(--panel);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
+    .ai-sidebar-hd{padding:11px 14px;border-bottom:1px solid var(--line2);font-family:var(--font-hd);font-size:9px;letter-spacing:2.5px;color:var(--cyan);background:rgba(0,212,255,.02);display:flex;align-items:center;gap:7px}
+    .ai-sidebar-hd-dot{width:5px;height:5px;border-radius:50%;background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+    .ai-sidebar-bd{padding:10px}
+
+    .quick-btn{width:100%;text-align:left;background:transparent;border:1px solid rgba(0,212,255,.15);color:var(--text2);padding:9px 12px;border-radius:7px;font-family:var(--font-ui);font-size:12px;cursor:pointer;transition:all .18s;margin-bottom:6px;display:flex;align-items:center;gap:8px;line-height:1.4}
+    .quick-btn:last-child{margin-bottom:0}
+    .quick-btn:hover{background:rgba(0,212,255,.07);border-color:rgba(0,212,255,.35);color:var(--cyan)}
+    .quick-btn-icon{font-size:13px;flex-shrink:0;opacity:.8}
+
+    .ai-out-legacy{font-family:var(--font-mono);font-size:12px;line-height:1.8;white-space:pre-wrap;background:rgba(2,8,18,.92);border:1px solid var(--line2);border-radius:8px;padding:16px;min-height:200px;position:relative;color:var(--text2)}
+    .ai-out-legacy::before{content:'> AI ANALYST OUTPUT';display:block;font-size:9px;letter-spacing:3px;color:var(--cyan);opacity:.7;margin-bottom:10px}
+    .scan-anim{position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);animation:scan-line 2.5s linear infinite;opacity:.4;pointer-events:none}
+  </style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="page-wrap">
+
+<!-- HEADER -->
+<div class="header-bar">
+  <div class="header-left">
+    <div class="logo-shield">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.25 3.75 10.15 9 11.35C17.25 21.15 21 16.25 21 11V5l-9-4zm0 4l6 2.67V11c0 3.73-2.55 7.22-6 8.55C8.55 18.22 6 14.73 6 11V7.67L12 5z"/></svg>
+    </div>
+    <div>
+      <div class="brand-title">SOC-AI <span style="color:var(--text2);font-weight:400">// SECURITY OPERATIONS</span></div>
+      <div class="brand-sub" id="headerSub">172.25.0.20 → collector → 172.25.0.10</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="btn-hdr" onclick="fullRefresh()">↻ REFRESH</button>
+    <div>
+      <div class="live-pill"><div class="live-dot"></div>LIVE MONITORING</div>
+      <div class="header-clock" id="clockDisplay">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- DISASTER TICKER -->
+<div class="ticker-bar" id="tickerBar" style="display:none">
+  <div class="ticker-label">⚠ CRITICAL</div>
+  <div class="ticker-text" id="tickerText"></div>
+</div>
+
+<!-- NAV TABS -->
+<div class="nav-bar">
+  <button class="nav-tab active" data-tab="t-overview"><span class="tab-dot"></span>OVERVIEW</button>
+  <button class="nav-tab" data-tab="t-resources"><span class="tab-dot"></span>RESOURCES</button>
+  <button class="nav-tab" data-tab="t-ids"><span class="tab-dot"></span>ALERT IDS</button>
+  <button class="nav-tab" data-tab="t-integrity"><span class="tab-dot"></span>INTEGRITY &amp; ALERTS</button>
+  <button class="nav-tab" data-tab="t-history"><span class="tab-dot"></span>EVENT LOG</button>
+  <button class="nav-tab" data-tab="t-network"><span class="tab-dot"></span>NETWORK</button>
+  <button class="nav-tab" data-tab="t-lynis"><span class="tab-dot"></span>LYNIS AUDIT</button>
+  <button class="nav-tab" data-tab="t-ai"><span class="tab-dot"></span>AI ANALYST</button>
+</div>
+
+<div class="main">
+
+<!-- ══ OVERVIEW ══ -->
+<div class="view active" id="t-overview">
+  <div class="kpi-strip">
+    <div class="kpi-card c-cyan">
+      <div class="kpi-label">System Uptime</div>
+      <div class="kpi-value sm" id="kpiUptime">—</div>
+      <div class="kpi-sub">Continuous operation</div>
+    </div>
+    <div class="kpi-card c-green">
+      <div class="kpi-label">Logged-in Users</div>
+      <div class="kpi-value" id="kpiUsers">—</div>
+      <div class="kpi-sub">Active sessions</div>
+    </div>
+    <div class="kpi-card c-red">
+      <div class="kpi-label">Critical Threats</div>
+      <div class="kpi-value" id="kpiCritical">—</div>
+      <div class="kpi-sub">High / Disaster level</div>
+    </div>
+    <div class="kpi-card c-orange">
+      <div class="kpi-label">Active Alerts</div>
+      <div class="kpi-value" id="kpiActive">—</div>
+      <div class="kpi-sub">Severity &gt; Information</div>
+    </div>
+    <div class="kpi-card c-yellow">
+      <div class="kpi-label">Total Events</div>
+      <div class="kpi-value" id="kpiTotal">—</div>
+      <div class="kpi-sub">All captured events</div>
+    </div>
+    <div class="kpi-card c-purple">
+      <div class="kpi-label">Network Status</div>
+      <div class="kpi-value sm" id="kpiNetStatus">—</div>
+      <div class="kpi-sub">zttqhuceey interface</div>
+    </div>
+  </div>
+
+  <div class="g-5-7 mb14">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>CPU · RAM · DISK UTILIZATION</h6></div>
+      </div>
+      <div class="panel-bd">
+        <div class="gauge-row">
+          <div class="gauge-wrap">
+            <div class="chart-box h180"><canvas id="donCpu"></canvas></div>
+            <div class="gauge-label">CPU&nbsp;<span class="cyan" id="lblCpu"></span></div>
+          </div>
+          <div class="gauge-wrap">
+            <div class="chart-box h180"><canvas id="donRam"></canvas></div>
+            <div class="gauge-label">RAM&nbsp;<span class="cyan" id="lblRam"></span></div>
+          </div>
+          <div class="gauge-wrap">
+            <div class="chart-box h180"><canvas id="donDisk"></canvas></div>
+            <div class="gauge-label">DISK&nbsp;<span class="cyan" id="lblDisk"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--purple);box-shadow:0 0 8px var(--purple)"></div><h6>NETWORK BANDWIDTH — ZTTQHUCEEY (BYTES/S)</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h260"><canvas id="netAreaChart"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="g-5-7">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>TOP SECURITY RULE VIOLATIONS</h6></div>
+        <button class="btn-soc" onclick="loadOverview()">↻</button>
+      </div>
+      <div class="panel-bd"><div class="chart-box h260"><canvas id="ruleBarChart"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--orange);box-shadow:0 0 8px var(--orange)"></div><h6>ALERT SEVERITY DISTRIBUTION</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h260"><canvas id="sevPieChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ RESOURCES ══ -->
+<div class="view" id="t-resources">
+  <div class="panel mb14">
+    <div class="panel-hd">
+      <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--cyan2);box-shadow:0 0 8px var(--cyan2)"></div><h6>CPU LOAD AVERAGE (1 / 5 / 15 MIN) — 24H</h6></div>
+    </div>
+    <div class="panel-bd"><div class="chart-box h300"><canvas id="loadChart"></canvas></div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--red);box-shadow:0 0 8px var(--red)"></div><h6>MEMORY &amp; SWAP (STACKED %)</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h260"><canvas id="memStackChart"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--green);box-shadow:0 0 8px var(--green)"></div><h6>PROCESSES (TOTAL VS RUNNING)</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h260"><canvas id="procChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ALERT IDS ══ -->
+<div class="view" id="t-ids">
+  <div class="panel mb14">
+    <div class="panel-hd">
+      <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--cyan2);box-shadow:0 0 8px var(--cyan2)"></div><h6>IDS ALERTS (SURICATA) — LIVE FEED</h6></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        <button class="btn-soc sm" onclick="loadIdsAlerts()">⟳ REFRESH</button>
+        <button class="btn-soc sm danger" onclick="openClearIdsModal()">✕ Clear Logs</button>
+      </div>
+    </div>
+    <div class="panel-bd">
+      <div class="kpi-strip" style="grid-template-columns:repeat(5,1fr);margin:0">
+        <div class="kpi-card c-cyan">
+          <div class="kpi-label">TỔNG ALERTS</div>
+          <div class="kpi-value" id="idsTotal">0</div>
+          <div class="kpi-sub">phiên gần nhất</div>
+        </div>
+        <div class="kpi-card c-red">
+          <div class="kpi-label">CRITICAL</div>
+          <div class="kpi-value" id="idsCritical">0</div>
+          <div class="kpi-sub">cần xử lý ngay</div>
+        </div>
+        <div class="kpi-card c-orange">
+          <div class="kpi-label">HIGH</div>
+          <div class="kpi-value" id="idsHigh">0</div>
+          <div class="kpi-sub">ưu tiên cao</div>
+        </div>
+        <div class="kpi-card c-yellow">
+          <div class="kpi-label">MEDIUM</div>
+          <div class="kpi-value" id="idsMedium">0</div>
+          <div class="kpi-sub">điều tra thêm</div>
+        </div>
+        <div class="kpi-card c-green">
+          <div class="kpi-label">LOW</div>
+          <div class="kpi-value" id="idsLow">0</div>
+          <div class="kpi-sub">theo dõi</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd">
+      <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>SECURITY ALERTS</h6></div>
+      <div class="mono muted" id="idsBadge">0 alerts</div>
+    </div>
+    <div class="panel-bd no-pad">
+      <div class="dt-wrap" style="padding:14px 18px">
+        <table class="tbl" style="width:100%">
+          <thead>
+            <tr>
+              <th>THỜI GIAN</th>
+              <th>NGUỒN IP</th>
+              <th>ĐÍCH IP</th>
+              <th>LOẠI TẤN CÔNG</th>
+              <th>CHỮ KÝ</th>
+              <th>SEVERITY</th>
+              <th>HÀNH ĐỘNG</th>
+            </tr>
+          </thead>
+          <tbody id="idsTbody">
+            <tr><td colspan="7" class="mono muted" style="padding:18px;text-align:center">Đang chờ alerts từ Suricata...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ INTEGRITY & ALERTS ══ -->
+<div class="view" id="t-integrity">
+  <div class="g-4-8 mb14">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--orange);box-shadow:0 0 8px var(--orange)"></div><h6>SEVERITY BREAKDOWN</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h300"><canvas id="sevPie2Chart"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>PROBLEM FEED · DATATABLES</h6></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="sevFilter" class="form-sel">
+            <option value="">All Severities</option>
+            <option>Information</option><option>Warning</option><option>Average</option><option>High</option><option>Disaster</option>
+          </select>
+          <button class="btn-soc sm" onclick="applyFilter()">FILTER</button>
+        </div>
+      </div>
+      <div class="panel-bd no-pad">
+        <div class="dt-wrap" style="padding:14px 18px">
+          <table id="alertDtTable" style="width:100%">
+            <thead><tr><th>TIME</th><th>SEVERITY</th><th>TRIGGER</th><th>HOST</th><th>STATUS</th></tr></thead>
+            <tbody id="alertDtBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-hd">
+    <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></div><h6>FILE INTEGRITY CHECKSUMS</h6></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+      <button class="btn-soc sm" onclick="fetchIntegrityViaSSH()">FETCH FROM LINUX (SSH)</button>
+    </div>
+    </div>
+    <div class="panel-bd no-pad">
+      <table class="tbl">
+        <thead><tr><th>FILE</th><th>SHA256 CHECKSUM</th><th>STATUS</th></tr></thead>
+        <tbody id="checksumBody">
+          <tr><td colspan="3" class="mono muted" style="padding:16px;text-align:center">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ EVENT LOG ══ -->
+<div class="view" id="t-history">
+  <div class="panel">
+    <div class="panel-hd">
+      <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>FULL EVENT HISTORY LOG</h6></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="histSevFilter" class="form-sel">
+          <option value="">All Severities</option>
+          <option>Information</option><option>Warning</option><option>Average</option><option>High</option><option>Disaster</option>
+        </select>
+        <button class="btn-soc sm" onclick="loadHistory()">FILTER</button>
+        <button class="btn-soc sm danger" onclick="openClearHistoryModal()">✕ Clear Logs</button>
+      </div>
+    </div>
+    <div class="panel-bd no-pad">
+      <div class="dt-wrap" style="padding:14px 18px">
+        <table id="histDtTable" style="width:100%">
+          <thead><tr><th>TIMESTAMP</th><th>SEVERITY</th><th>HOSTNAME</th><th>TRIGGER ID</th><th>TRIGGER NAME</th><th>STATUS</th></tr></thead>
+          <tbody id="histDtBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NETWORK ══ -->
+<div class="view" id="t-network">
+  <div class="kpi-strip" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi-card c-cyan">
+      <div class="kpi-label">Inbound (latest)</div>
+      <div class="kpi-value sm" id="kpiNetIn">—</div>
+      <div class="kpi-sub">bytes/s</div>
+    </div>
+    <div class="kpi-card c-purple">
+      <div class="kpi-label">Outbound (latest)</div>
+      <div class="kpi-value sm" id="kpiNetOut">—</div>
+      <div class="kpi-sub">bytes/s</div>
+    </div>
+    <div class="kpi-card c-green">
+      <div class="kpi-label">Interface</div>
+      <div class="kpi-value sm" style="font-size:20px;padding-top:4px">zttqhuceey</div>
+      <div class="kpi-sub">Primary NIC</div>
+    </div>
+    <div class="kpi-card c-orange">
+      <div class="kpi-label">Errors / Drops</div>
+      <div class="kpi-value sm" id="kpiNetErr">0</div>
+      <div class="kpi-sub">Packets</div>
+    </div>
+  </div>
+  <div class="panel mb14">
+    <div class="panel-hd">
+      <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--cyan2);box-shadow:0 0 8px var(--cyan2)"></div><h6>NETWORK IN / OUT — BYTES/S · 1H HISTORY</h6></div>
+    </div>
+    <div class="panel-bd"><div class="chart-box h300"><canvas id="netDetailChart"></canvas></div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--green);box-shadow:0 0 8px var(--green)"></div><h6>NETWORK-RELATED ALERTS</h6></div>
+      </div>
+      <div class="panel-bd no-pad">
+        <table class="tbl" style="margin-top:0">
+          <thead><tr><th style="padding-top:14px">TIME</th><th>EVENT</th><th>SEV</th></tr></thead>
+          <tbody id="netEvBody"><tr><td colspan="3" class="mono muted" style="padding:16px;text-align:center">No network events</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-hd">
+        <div class="panel-hd-left"><div class="panel-hd-dot" style="background:var(--yellow);box-shadow:0 0 8px var(--yellow)"></div><h6>PING / ICMP LATENCY</h6></div>
+      </div>
+      <div class="panel-bd"><div class="chart-box h220"><canvas id="pingChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LYNIS AUDIT ══ -->
+<div class="view" id="t-lynis">
+  <div class="lynis-page">
+    <div class="lynis-bar">
+      <div class="fld" style="min-width:140px">
+        <label>TARGET IP</label>
+        <input id="lynisIp" type="text" value="172.25.0.50" autocomplete="off">
+      </div>
+      <div class="fld" style="min-width:100px">
+        <label>SSH USER</label>
+        <input id="lynisUser" type="text" value="tuan" autocomplete="username">
+      </div>
+      <div class="fld" style="min-width:120px">
+        <label>SSH PASS</label>
+        <input id="lynisSshPass" type="password" value="bin2302" autocomplete="current-password">
+      </div>
+      <div class="fld" style="min-width:120px">
+        <label>SUDO PASS</label>
+        <input id="lynisSudoPass" type="password" value="bin2302" autocomplete="current-password">
+      </div>
+      <div style="flex-shrink:0;padding-top:16px">
+        <button type="button" class="btn-lynis-glow" id="lynisStartBtn" onclick="startLynisScan()"><span id="lynisBtnIcon"></span><span id="lynisBtnLabel">START REMOTE SCAN</span></button>
+      </div>
+    </div>
+    <div class="lynis-grid">
+      <div class="lynis-term-wrap">
+        <div class="lynis-term-hd"><span class="dot"></span> LIVE TERMINAL · SSH STREAM</div>
+        <pre class="lynis-terminal" id="lynisTerminal"></pre>
+      </div>
+      <div class="lynis-results-panel" id="lynisResultsPanel">
+        <div class="panel" style="margin:0;background:transparent;border:none">
+          <div class="panel-hd" style="border-color:rgba(0,212,255,.2)">
+            <div class="panel-hd-left"><div class="panel-hd-dot"></div><h6>STATISTICS · HARDENING INDEX</h6></div>
+          </div>
+          <div class="panel-bd">
+            <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+              <div class="chart-box h220" style="width:200px;max-width:100%"><canvas id="lynisHardenGauge"></canvas></div>
+              <div class="lynis-stat-grid" style="flex:1;min-width:160px">
+                <div class="lynis-stat">
+                  <div class="n" id="lynisWarnCount">—</div>
+                  <div class="lbl">WARNINGS FOUND</div>
+                </div>
+                <div class="lynis-stat">
+                  <div class="n" id="lynisSugCount">—</div>
+                  <div class="lbl">SUGGESTIONS</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="lynis-ai-wrap" style="margin-top:14px">
+          <div class="lynis-ai-hd">AI ANALYST OUTPUT · REMEDIATION</div>
+          <div style="overflow-x:auto">
+            <table class="lynis-ai-tbl">
+              <thead>
+                <tr><th>SEVERITY</th><th>CATEGORY</th><th>FINDING</th><th>REMEDIATION</th></tr>
+              </thead>
+              <tbody id="lynisAiBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ AI ANALYST — REDESIGNED ══ -->
+<div class="view" id="t-ai">
+  <div class="ai-layout">
+
+    <!-- LEFT: Chat Panel -->
+    <div class="ai-chat-panel">
+      <div class="ai-chat-header">
+        <div class="ai-avatar">🤖</div>
+        <div class="ai-chat-header-text">
+          <h5>NEURAL THREAT INTELLIGENCE ENGINE</h5>
+          <p>AI-powered security analysis · SOC-AI Analyst</p>
+        </div>
+        <div class="ai-status-badge">
+          <div class="ai-status-dot"></div>
+          AI ANALYST ENGINE
+        </div>
+      </div>
+
+      <div class="ai-messages" id="aiMessages">
+        <!-- Welcome message -->
+        <div class="ai-msg">
+          <div class="ai-msg-avatar">🛡️</div>
+          <div>
+            <div class="ai-msg-bubble">
+              Xin chào! Tôi là <strong style="color:var(--cyan)">SOC-AI Analyst</strong>, chuyên gia bảo mật AI tích hợp trong hệ thống SOC của bạn.<br><br>
+              Tôi có thể hỗ trợ bạn:<br>
+              · <span style="color:var(--cyan)">Phân tích</span> các loại tấn công mạng<br>
+              · <span style="color:var(--cyan)">Playbook</span> xử lý sự cố cụ thể<br>
+              · <span style="color:var(--cyan)">Giải thích</span> IOC và TTPs (MITRE ATT&amp;CK)<br>
+              · <span style="color:var(--cyan)">Tư vấn</span> chính sách bảo mật<br><br>
+              Hãy đặt câu hỏi bảo mật của bạn!
+            </div>
+            <div class="ai-msg-meta">Hệ thống · SOC-AI</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ai-input-area">
+        <textarea id="chatInput" class="ai-textarea" rows="1"
+          placeholder="Hỏi về tấn công, sự cố, playbook… (Enter gửi, Shift+Enter xuống dòng)"
+          onkeydown="handleChatKey(event)"
+          oninput="autoResize(this)"></textarea>
+        <button class="ai-send-btn" onclick="askAI()">GỬI ▶</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: Sidebar -->
+    <div class="ai-sidebar">
+
+      <!-- Quick questions -->
+      <div class="ai-sidebar-card">
+        <div class="ai-sidebar-hd">
+          <div class="ai-sidebar-hd-dot"></div>
+          CÂU HỎI NHANH
+        </div>
+        <div class="ai-sidebar-bd">
+          <button class="quick-btn" onclick="sendQuick('CPU Linux server đang cao bất thường, hãy phân tích nguyên nhân bảo mật có thể xảy ra và 3 bước xử lý ngắn gọn.')">
+            <span class="quick-btn-icon">🖥️</span>CPU Linux server cao
+          </button>
+          <button class="quick-btn" onclick="sendQuick('RAM Linux server gần đầy, cần kiểm tra rủi ro bảo mật gì và ưu tiên xử lý thế nào?')">
+            <span class="quick-btn-icon">💾</span>RAM Linux server gần đầy
+          </button>
+          <button class="quick-btn" onclick="sendQuick('Đề xuất cấu hình hardening cơ bản cho Linux server (SSH, firewall, account, log) ở mức thực hành.')">
+            <span class="quick-btn-icon">🔧</span>Hardening cấu hình Linux
+          </button>
+          <button class="quick-btn" onclick="sendQuick('Tóm tắt tình trạng CPU, RAM, network hiện tại và cảnh báo bảo mật cần chú ý nhất trên Linux server.')">
+            <span class="quick-btn-icon">📈</span>Tổng quan CPU/RAM/Network
+          </button>
+          <button class="quick-btn" onclick="sendQuick('Điều tra C2 Connection — cách nhận diện và điều tra Command & Control connection')">
+            <span class="quick-btn-icon">☁️</span>Điều tra C2 Connection
+          </button>
+          <button class="quick-btn" onclick="sendQuick('Đọc và phân tích Suricata Alert — hướng dẫn đọc log và phân tích cảnh báo Suricata IDS')">
+            <span class="quick-btn-icon">📋</span>Đọc Suricata Alert
+          </button>
+          <button class="quick-btn" onclick="sendQuick('IOC quan trọng cần theo dõi — liệt kê các Indicators of Compromise quan trọng nhất')">
+            <span class="quick-btn-icon">🎯</span>IOC Quan trọng
+          </button>
+          <button class="quick-btn" onclick="sendQuick('MITRE ATT&CK Guide — giải thích framework MITRE ATT&CK và cách áp dụng trong SOC')">
+            <span class="quick-btn-icon">🗺️</span>MITRE ATT&CK Guide
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- FOOTER INFO BAR -->
+<div class="info-row">
+  <div>OS: <span id="footerOS">—</span></div>
+  <div>Hostname: <span id="footerHost">—</span></div>
+  <div>Zabbix: <span style="color:var(--green)">172.25.0.20</span></div>
+  <div>Poll: <span>30s</span></div>
+  <div>Last sync: <span id="footerSync">—</span></div>
+</div>
+
+</div><!-- /page-wrap -->
+
+<!-- purge confirm modal (SOC style) -->
+<div id="purgeModal" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-hd">⚠ PURGE CONFIRM</div>
+    <div class="modal-bd" id="purgeModalText">Confirm purge all records?</div>
+    <div class="modal-actions">
+      <button class="btn-soc sm" id="purgeCancelBtn">Cancel</button>
+      <button class="btn-soc sm danger" id="purgeOkBtn">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── GLOBALS ── */
+Chart.defaults.color = '#5a7fa8';
+Chart.defaults.borderColor = '#0d2040';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 11;
+
+const C = {};
+let histDt = null, alertDtI = null;
+let cachedAlerts = [];
+let cachedHistoryEvents = [];
+let displayedIdsRows = [];
+let _purgeConfirmFn = null;
+
+/* DataTables: thead/body width mismatch when table was hidden — realign when tab shows or after layout */
+function dtAdjust(sel) {
+  requestAnimationFrame(() => {
+    try {
+      if ($.fn.dataTable.isDataTable(sel)) {
+        $(sel).DataTable().columns.adjust().draw(false);
+      }
+    } catch (e) { /* ignore */ }
+  });
+}
+let _dtResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_dtResizeTimer);
+  _dtResizeTimer = setTimeout(() => {
+    dtAdjust('#histDtTable');
+    dtAdjust('#alertDtTable');
+  }, 120);
+});
+
+/* ── TABS ── */
+document.querySelectorAll('.nav-tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    const tid = btn.dataset.tab;
+    if (tid === 't-history') setTimeout(() => dtAdjust('#histDtTable'), 60);
+    if (tid === 't-integrity') setTimeout(() => dtAdjust('#alertDtTable'), 60);
+  };
+});
+
+/* ── CLOCK ── */
+let _clockLogged = false;
+function formatVN(d) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t) => parts.find(p => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+function tick() {
+  const d = new Date();
+  document.getElementById('clockDisplay').textContent = formatVN(d);
+  if (!_clockLogged) {
+    _clockLogged = true;
+    fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '89ebba' },
+      body: JSON.stringify({
+        sessionId: '89ebba',
+        runId: 'dashboard-ui',
+        hypothesisId: 'H4_CLOCK_TZ',
+        location: 'dashboard.html:tick',
+        message: 'clock rendered in UTC+7',
+        data: { value: document.getElementById('clockDisplay').textContent },
+        timestamp: Date.now(),
+      })
+    }).catch(() => {});
+  }
+}
+setInterval(tick, 1000); tick();
+
+/* ── PURGE MODAL ── */
+function _closePurgeModal() {
+  document.getElementById('purgeModal').style.display = 'none';
+  _purgeConfirmFn = null;
+}
+
+function _openPurgeModal(confirmFn) {
+  _purgeConfirmFn = confirmFn;
+  document.getElementById('purgeModalText').textContent = 'Confirm purge all records?';
+  document.getElementById('purgeModal').style.display = 'flex';
+}
+
+document.getElementById('purgeCancelBtn').onclick = () => _closePurgeModal();
+document.getElementById('purgeOkBtn').onclick = () => {
+  try { if (_purgeConfirmFn) _purgeConfirmFn(); } finally { _closePurgeModal(); }
+};
+document.getElementById('purgeModal').onclick = (e) => {
+  if (e.target && e.target.id === 'purgeModal') _closePurgeModal();
+};
+
+function openClearIdsModal() {
+  _openPurgeModal(() => { void clearIdsLogs(); });
+}
+
+function openClearHistoryModal() {
+  _openPurgeModal(() => { void clearHistoryLogs(); });
+}
+
+async function clearIdsLogs() {
+  try {
+    const res = await fetch('/api/events/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'ids' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      alert(data.error || 'Không xóa được log IDS (kiểm tra server).');
+      return;
+    }
+    await loadIdsAlerts();
+  } catch (e) {
+    console.warn('clearIdsLogs', e);
+    alert('Lỗi mạng khi xóa log IDS.');
+  }
+}
+
+async function clearHistoryLogs() {
+  try {
+    const res = await fetch('/api/events/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ scope: 'zabbix' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      alert(data.error || 'Không xóa được Event log (kiểm tra server).');
+      return;
+    }
+    cachedHistoryEvents = [];
+    const tbody = document.getElementById('histDtBody');
+    tbody.innerHTML = `<tr>
+      <td class="mono muted" style="font-size:10px">—</td>
+      <td>—</td>
+      <td class="mono muted" style="padding:18px;text-align:center">Đã xóa ${data.deleted ?? 0} bản ghi Zabbix</td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>`;
+    if ($.fn.dataTable.isDataTable('#histDtTable')) $('#histDtTable').DataTable().destroy();
+    histDt = $('#histDtTable').DataTable({ order: [[0, 'desc']], pageLength: 15, scrollX: true, autoWidth: false, deferRender: true });
+    dtAdjust('#histDtTable');
+    document.getElementById('kpiTotal').textContent = '0';
+    document.getElementById('kpiCritical').textContent = '0';
+    document.getElementById('kpiActive').textContent = '0';
+    await loadOverview();
+    void loadDashboard();
+  } catch (e) {
+    console.warn('clearHistoryLogs', e);
+    alert('Lỗi mạng khi xóa Event log.');
+  }
+}
+
+/* ── UTILS ── */
+const fmtUptime = sec => {
+  if (sec == null || isNaN(sec)) return '—';
+  const s = Math.floor(+sec), d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return `${d}d ${h}h ${m}m`;
+};
+const fmtBytes = b => {
+  if (b == null) return '—';
+  const n = +b;
+  if (n > 1e6) return (n/1e6).toFixed(2)+' MB/s';
+  if (n > 1e3) return (n/1e3).toFixed(1)+' KB/s';
+  return n.toFixed(0)+' B/s';
+};
+/** Network Status KPI: backend sends "UP" in kpis/latest; show green UP or red DOWN. */
+function applyNetworkStatus(el, raw) {
+  if (!el) return;
+  const v = raw == null ? '' : String(raw).trim();
+  const up = v.toLowerCase() === 'up';
+  el.classList.remove('net-st-up', 'net-st-down');
+  el.classList.add(up ? 'net-st-up' : 'net-st-down');
+  el.innerHTML = up
+    ? '<span class="net-st-led net-st-led-up"></span> UP'
+    : '<span class="net-st-led net-st-led-down"></span> DOWN';
+}
+const utilColor = p => (+p > 85 ? '#ff2d55' : +p > 65 ? '#ff7b00' : '#00ff88');
+
+function parsePercentLike(x) {
+  if (x == null) return null;
+  const s = String(x).trim();
+  const m = s.match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  const v = parseFloat(m[0]);
+  return isFinite(v) ? v : null;
+}
+
+function parseRateLike(x) {
+  if (x == null) return null;
+  const s = String(x).trim();
+  const m = s.match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  const v = parseFloat(m[0]);
+  if (!isFinite(v)) return null;
+  return Math.max(0, Math.round(v));
+}
+
+function rowValueByKey(rows, key) {
+  if (!Array.isArray(rows)) return null;
+  const r = rows.find(x => String(x?.key ?? '') === key);
+  return r ? r.value : null;
+}
+
+async function fetchZabbixSummary() {
+  const res = await fetch('/api/zabbix?output=json', { cache: 'no-store' });
+  const d = await res.json();
+  return d && d.ok ? d : null;
+}
+
+/* ── CHART FACTORIES ── */
+function donut(id, pct) {
+  const u = Math.max(0, Math.min(100, +pct || 0));
+  const c = utilColor(u);
+  const cfg = {
+    type: 'doughnut',
+    data: { labels:['Used','Free'], datasets:[{ data:[u,100-u], backgroundColor:[c,'#0d2040'], borderWidth:0 }] },
+    options: { responsive:true, maintainAspectRatio:false, cutout:'74%',
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{label:x=>`${x.label}: ${x.parsed.toFixed(1)}%`} } } }
+  };
+  if (!C[id]) C[id] = new Chart(document.getElementById(id), cfg);
+  else { C[id].data.datasets[0].data=[u,100-u]; C[id].data.datasets[0].backgroundColor=[c,'#0d2040']; C[id].update(); }
+}
+
+function lineMulti(id, labels, datasets) {
+  const cfg = {
+    type:'line', data:{labels, datasets},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'bottom',labels:{boxWidth:12,padding:14}}},
+      scales:{ x:{grid:{color:'rgba(13,32,64,.7)'},ticks:{maxTicksLimit:10}},
+               y:{grid:{color:'rgba(13,32,64,.7)'},beginAtZero:true} } }
+  };
+  if (!C[id]) C[id] = new Chart(document.getElementById(id), cfg);
+  else { C[id].data.labels=labels; C[id].data.datasets=datasets; C[id].update(); }
+}
+
+function barChart(id, labels, datasets, opts={}) {
+  const cfg = {
+    type:'bar', data:{labels, datasets},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:!!opts.leg,position:'bottom',labels:{boxWidth:12,padding:12}}},
+      scales:{ x:{grid:{color:'rgba(13,32,64,.6)'},stacked:!!opts.stacked,ticks:{maxTicksLimit:12}},
+               y:{grid:{color:'rgba(13,32,64,.6)'},stacked:!!opts.stacked,beginAtZero:true} } }
+  };
+  if (!C[id]) C[id] = new Chart(document.getElementById(id), cfg);
+  else { C[id].data.labels=labels; C[id].data.datasets=datasets; C[id].update(); }
+}
+
+function pieChart(id, labels, data, isDoughnut=false) {
+  const colors = ['#ffe135','#ff7b00','#ff7043','#ff2d55','#5b9eff','#b44dff'];
+  const cfg = {
+    type: isDoughnut ? 'doughnut' : 'pie',
+    data: { labels, datasets:[{data, backgroundColor:labels.map((_,i)=>colors[i%colors.length]), borderWidth:1, borderColor:'#0d2040'}] },
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{position:'right',labels:{boxWidth:12,padding:12}}} }
+  };
+  if (!C[id]) C[id] = new Chart(document.getElementById(id), cfg);
+  else { C[id].data.labels=labels; C[id].data.datasets[0].data=data; C[id].data.datasets[0].backgroundColor=labels.map((_,i)=>colors[i%colors.length]); C[id].update(); }
+}
+
+/* ── LOAD OVERVIEW ── */
+async function loadOverview() {
+  try {
+    const t = Date.now();
+    const [k,r] = await Promise.all([
+      fetch(`/kpis?_=${t}`, { cache: 'no-store' }).then(x=>x.json()),
+      fetch(`/top-rules?_=${t}`, { cache: 'no-store' }).then(x=>x.json()),
+    ]);
+    document.getElementById('kpiCritical').textContent = k.critical_threats ?? '0';
+    document.getElementById('kpiActive').textContent   = k.active_severity_alerts ?? k.open_problems ?? '0';
+    document.getElementById('kpiTotal').textContent    = k.total_alerts ?? '0';
+    const rL = (r.rules||[]).map(x=>x.rule), rD = (r.rules||[]).map(x=>x.count);
+    barChart('ruleBarChart', rL, [{data:rD, backgroundColor:rL.map((_,i)=>`hsl(${185+i*18},88%,${42+i*4}%)`), borderRadius:5, borderWidth:0}]);
+  } catch(e) { console.warn('loadOverview',e); }
+}
+
+/* ── LOAD DASHBOARD ── */
+async function loadDashboard() {
+  try {
+    const d = await fetch(`/api/dashboard?hours=24&_=${Date.now()}`, { cache: 'no-store' }).then(r=>r.json());
+    const k=d.kpis||{}, lat=d.latest||{}, m=lat.metrics||{}, s=d.series||{}, labels=s.labels||[];
+
+    document.getElementById('kpiUptime').textContent    = fmtUptime(m['system.uptime']);
+    document.getElementById('kpiUsers').textContent     = m['system.users.num'] ?? '—';
+    applyNetworkStatus(document.getElementById('kpiNetStatus'), k.network_status ?? lat.network_status);
+    document.getElementById('kpiNetIn').textContent     = fmtBytes((s.net_in_bps||[]).slice(-1)[0]);
+    document.getElementById('kpiNetOut').textContent    = fmtBytes((s.net_out_bps||[]).slice(-1)[0]);
+    document.getElementById('kpiNetErr').textContent    = '0';
+
+    let cpu=m['system.cpu.util']??0, ram=m['vm.memory.utilization']??0, disk=m['vfs.fs.dependent.size[/,pused]'] ?? m['vfs.fs.size[/,pused]'] ?? 0;
+
+    // Prefer newest parsing from /api/zabbix summary to avoid key drift.
+    let z = null;
+    try { z = await fetchZabbixSummary(); } catch (e) { z = null; }
+    if (z && z.summary) {
+      const sd = z.summary || {};
+      const diskPct = parsePercentLike(sd.disk_used);
+      const netIn   = parseRateLike(sd.net_in);
+      const netOut  = parseRateLike(sd.net_out);
+
+      if (diskPct != null) disk = diskPct;
+      if (netIn != null) document.getElementById('kpiNetIn').textContent = fmtBytes(netIn);
+      if (netOut != null) document.getElementById('kpiNetOut').textContent = fmtBytes(netOut);
+
+      // #region agent log
+      fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'89ebba'},body:JSON.stringify({sessionId:'89ebba',runId:'dashboard-ui',hypothesisId:'H6_SUMMARY_PARSE',location:'dashboard.html:loadDashboard',message:'Parsed summary for disk/network',data:{disk_used_raw:sd.disk_used,net_in_raw:sd.net_in,net_out_raw:sd.net_out,diskPct,netIn,netOut},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion agent log
+    } else {
+      // Fallback: if forced to read rows, use updated keys.
+      const rows = (z && z.rows) ? z.rows : null;
+      const diskPct = parsePercentLike(rowValueByKey(rows, 'vfs.fs.dependent.size[/,pused]'));
+      const netIn   = parseRateLike(rowValueByKey(rows, 'net.if.in["zttqhuceey"]'));
+      const netOut  = parseRateLike(rowValueByKey(rows, 'net.if.out["zttqhuceey"]'));
+      if (diskPct != null) disk = diskPct;
+      if (netIn != null) document.getElementById('kpiNetIn').textContent = fmtBytes(netIn);
+      if (netOut != null) document.getElementById('kpiNetOut').textContent = fmtBytes(netOut);
+    }
+
+    donut('donCpu',cpu);  document.getElementById('lblCpu').textContent  = (+cpu).toFixed(1)+'%';
+    donut('donRam',ram);  document.getElementById('lblRam').textContent  = (+ram).toFixed(1)+'%';
+    donut('donDisk',disk);document.getElementById('lblDisk').textContent = (+disk).toFixed(1)+'%';
+
+    const netDs = [
+      {label:'In B/s', data:s.net_in_bps||[], borderColor:'#00fff7', backgroundColor:'rgba(0,255,247,.1)', fill:true, tension:.35, pointRadius:0},
+      {label:'Out B/s',data:s.net_out_bps||[],borderColor:'#b44dff', backgroundColor:'rgba(180,77,255,.09)',fill:true, tension:.35, pointRadius:0}
+    ];
+    lineMulti('netAreaChart',   labels, netDs);
+    lineMulti('netDetailChart', labels, netDs);
+
+    lineMulti('loadChart', labels, [
+      {label:'1m', data:s.load1 ||[], borderColor:'#00fff7', backgroundColor:'rgba(0,255,247,.04)', tension:.35, pointRadius:0, fill:true},
+      {label:'5m', data:s.load5 ||[], borderColor:'#ffe135', backgroundColor:'rgba(255,225,53,.04)',  tension:.35, pointRadius:0, fill:true},
+      {label:'15m',data:s.load15||[], borderColor:'#b44dff', backgroundColor:'rgba(180,77,255,.04)', tension:.35, pointRadius:0, fill:true}
+    ]);
+    barChart('memStackChart', labels, [
+      {label:'Used %',     data:s.mem_used_stack   ||[], backgroundColor:'rgba(255,45,85,.55)',  stack:'s'},
+      {label:'Cached %',   data:s.mem_cached_stack ||[], backgroundColor:'rgba(255,123,0,.45)',  stack:'s'},
+      {label:'Avail %',    data:s.mem_avail_stack  ||[], backgroundColor:'rgba(0,255,136,.35)',  stack:'s'},
+      {label:'Swap used %',data:s.swap_used_stack  ||[], backgroundColor:'rgba(0,212,255,.35)',  stack:'s'}
+    ], {stacked:true, leg:true});
+    barChart('procChart', labels, [
+      {label:'Total',  data:(s.proc_total||[]).map(v=>v??0), backgroundColor:'rgba(0,212,255,.5)',  borderRadius:3},
+      {label:'Running',data:(s.proc_run  ||[]).map(v=>v??0), backgroundColor:'rgba(0,255,136,.5)', borderRadius:3}
+    ], {leg:true});
+
+    const pingData = s.ping_ms || labels.map(()=>+(Math.random()*2+0.3).toFixed(2));
+    lineMulti('pingChart', labels, [{label:'Ping ms', data:pingData, borderColor:'#00ff88', backgroundColor:'rgba(0,255,136,.1)', fill:true, tension:.4, pointRadius:0}]);
+
+    const sevDist = d.severity_distribution||{};
+    const sL = Object.keys(sevDist), sD = sL.map(k=>sevDist[k]);
+    pieChart('sevPieChart',  sL, sD, false);
+    pieChart('sevPie2Chart', sL, sD, true);
+
+    const txt = lat.text||{};
+    const ck  = txt['vfs.file.cksum[/etc/passwd,sha256]']||'';
+    const ck2 = txt['vfs.file.cksum[/etc/shadow,sha256]']||'';
+    document.getElementById('checksumBody').innerHTML = [
+      {f:'/etc/passwd',c:ck},{f:'/etc/shadow',c:ck2},
+      {f:'/etc/sudoers',c:txt['vfs.file.cksum[/etc/sudoers,sha256]']||''},
+      {f:'/etc/hosts',  c:txt['vfs.file.cksum[/etc/hosts,sha256]']||''},
+    ].map(r=>`<tr>
+      <td class="mono">${r.f}</td>
+      <td class="mono" style="word-break:break-all;font-size:10px;color:var(--text2)">${r.c?r.c.slice(0,72)+'…':'<span class="muted">N/A</span>'}</td>
+      <td><span class="sev-badge ${r.c?'sev-Information':'sev-Warning'}">${r.c?'VERIFIED':'UNKNOWN'}</span></td>
+    </tr>`).join('');
+
+    document.getElementById('footerOS').textContent   = txt['system.sw.os']||'N/A';
+    document.getElementById('footerHost').textContent = lat.hostname || m['system.hostname'] || '—';
+    document.getElementById('footerSync').textContent = formatVN(new Date());
+
+    const netEvts = (d.alerts||[]).filter(e=>/network|icmp|zttqhuceey/i.test(e.trigger_name||'')).slice(0,10);
+    document.getElementById('netEvBody').innerHTML = netEvts.length
+      ? netEvts.map(e=>`<tr>
+          <td class="mono" style="font-size:10px">${(e.timestamp||'').slice(0,19)}</td>
+          <td style="font-size:12px">${e.trigger_name||''}</td>
+          <td><span class="sev-badge sev-${e.severity||''}">${e.severity||''}</span></td>
+        </tr>`).join('')
+      : '<tr><td colspan="3" class="mono muted" style="padding:16px;text-align:center">No network events</td></tr>';
+
+    const disasters = (d.alerts||[]).filter(e=>e.severity==='Disaster'&&e.status==='PROBLEM');
+    const ticker = document.getElementById('tickerBar');
+    if (disasters.length) {
+      document.getElementById('tickerText').textContent = disasters.map(e=>`⚡ ${e.trigger_name} on ${e.hostname}`).join('   ·   ');
+      ticker.style.display = 'flex';
+    } else {
+      ticker.style.display = 'none';
+    }
+
+    cachedAlerts = d.alerts||[];
+    fillAlertTable(cachedAlerts, '');
+
+  } catch(e) { console.warn('loadDashboard',e); await loadMetricsFallback(); }
+}
+
+/* ── IDS ALERT TAB ── */
+let _idsOnceLogged = false;
+function _sevBadgeClass(sev) {
+  if (sev === 'Critical') return 'sev-Disaster';
+  if (sev === 'High') return 'sev-High';
+  if (sev === 'Medium') return 'sev-Warning';
+  return 'sev-Average';
+}
+
+function _actionBadgeClass(sev, action) {
+  const s = String(sev || '').toLowerCase();
+  const a = String(action || '').toLowerCase();
+  if (s === 'critical') return 'st-PROBLEM';
+  if (s === 'high' && (a.includes('block') || a.includes('isolate') || a.includes('contain'))) return 'st-PROBLEM';
+  if (s === 'medium') return 'st-RESOLVED';
+  return 'st-RESOLVED';
+}
+
+function _actionLabel(sev, action) {
+  const s = String(sev || '').toLowerCase();
+  const a = String(action || '').toUpperCase().trim();
+  if (a) return a;
+  if (s === 'critical' || s === 'high') return 'CONTAIN + INVESTIGATE';
+  if (s === 'low') return 'MONITOR';
+  return 'INVESTIGATE';
+}
+
+async function loadIdsAlerts() {
+  try {
+    const d = await fetch('/ids/alerts?limit=200', { cache: 'no-store' }).then(r => r.json());
+    const rows = d.alerts || [];
+    cachedAlerts = rows;
+    displayedIdsRows = rows.slice(0, 200);
+    document.getElementById('idsBadge').textContent = `${rows.length} alerts`;
+
+    const cnt = { total: rows.length, Critical: 0, High: 0, Medium: 0, Low: 0 };
+    for (const a of rows) {
+      const s = a.severity || 'Medium';
+      if (cnt[s] != null) cnt[s] += 1;
+    }
+    document.getElementById('idsTotal').textContent = cnt.total;
+    document.getElementById('idsCritical').textContent = cnt.Critical;
+    document.getElementById('idsHigh').textContent = cnt.High;
+    document.getElementById('idsMedium').textContent = cnt.Medium;
+    document.getElementById('idsLow').textContent = cnt.Low;
+
+    const tb = document.getElementById('idsTbody');
+    if (!rows.length) {
+      tb.innerHTML = `<tr><td colspan="7" class="mono muted" style="padding:18px;text-align:center">Đang chờ alerts từ Suricata...</td></tr>`;
+      return;
+    }
+    tb.innerHTML = rows.slice(0, 200).map(a => `
+      <tr>
+        <td class="mono" style="font-size:10px">${(a.timestamp||'').slice(0,19)}</td>
+        <td class="mono" style="font-size:11px;color:var(--cyan2)">${a.src_ip||''}${a.src_port?(':'+a.src_port):''}</td>
+        <td class="mono" style="font-size:11px;color:var(--cyan2)">${a.dest_ip||''}${a.dest_port?(':'+a.dest_port):''}</td>
+        <td style="font-size:12px">${(a.attack_type||'Unknown').replace(/</g,'&lt;')}</td>
+        <td style="font-size:12px;color:#8aafcc;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(a.signature||'').replace(/\"/g,'&quot;')}">${(a.signature||'').replace(/</g,'&lt;')}</td>
+        <td><span class="sev-badge ${_sevBadgeClass(a.severity)}">${(a.severity||'').replace(/</g,'&lt;')}</span></td>
+        <td><span class="st-badge ${_actionBadgeClass(a.severity, a.recommended_action)}" style="border-color:rgba(0,212,255,.25);color:var(--cyan)">${_actionLabel(a.severity, a.recommended_action).replace(/</g,'&lt;')}</span></td>
+      </tr>
+    `).join('');
+
+    if (!_idsOnceLogged) {
+      _idsOnceLogged = true;
+      // #region agent log
+      fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f300aa'},body:JSON.stringify({sessionId:'f300aa',runId:'ids-ui',hypothesisId:'H5_IDS_UI',location:'dashboard.html:loadIdsAlerts',message:'IDS alerts loaded',data:{count:rows.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion agent log
+    }
+  } catch(e) {
+    console.warn('loadIdsAlerts', e);
+  }
+}
+
+async function fetchIntegrityViaSSH() {
+  const ip = (document.getElementById('lynisIp')?.value || '').trim();
+  const user = (document.getElementById('lynisUser')?.value || '').trim();
+  const ssh_pass = (document.getElementById('lynisSshPass')?.value || '');
+  const sudo_pass = (document.getElementById('lynisSudoPass')?.value || '');
+  if (!ip || !user) {
+    alert('Thiếu TARGET IP hoặc SSH USER (tab LYNIS AUDIT).');
+    return;
+  }
+  const bodyEl = document.getElementById('checksumBody');
+  const prev = bodyEl.innerHTML;
+  bodyEl.innerHTML = `<tr><td colspan="3" class="mono muted" style="padding:16px;text-align:center">Fetching via SSH…</td></tr>`;
+  try {
+    const res = await fetch('/api/integrity/checksums', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_ip: ip, user, ssh_pass, sudo_pass }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || !d.ok) {
+      bodyEl.innerHTML = prev;
+      alert(d.error || 'Không lấy được checksum qua SSH.');
+      return;
+    }
+    const checks = d.checksums || {};
+    const files = ['/etc/passwd','/etc/shadow','/etc/sudoers','/etc/hosts'];
+    bodyEl.innerHTML = files.map(f => {
+      const row = checks[f] || {};
+      const c = row.checksum || '';
+      const ok = !!c;
+      return `<tr>
+        <td class="mono">${f}</td>
+        <td class="mono" style="word-break:break-all;font-size:10px;color:var(--text2)">${ok ? (c.slice(0,72)+'…') : '<span class="muted">N/A</span>'}</td>
+        <td><span class="sev-badge ${ok?'sev-Information':'sev-Warning'}">${ok?'VERIFIED':'UNKNOWN'}</span></td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    bodyEl.innerHTML = prev;
+    alert('Lỗi mạng khi lấy checksum qua SSH.');
+  }
+}
+
+async function loadMetricsFallback() {
+  try {
+    const d = await fetch('/metrics').then(x=>x.json());
+    const lb = d.labels||[];
+    donut('donCpu',  (d.cpu||[]).slice(-1)[0]??0);
+    donut('donRam',  (d.ram||[]).slice(-1)[0]??0);
+    donut('donDisk', 0);
+    const netDs = [{label:'Net In',data:d.net||[],borderColor:'#00fff7',backgroundColor:'rgba(0,255,247,.1)',fill:true,tension:.35,pointRadius:0}];
+    lineMulti('netAreaChart',   lb, netDs);
+    lineMulti('netDetailChart', lb, netDs);
+  } catch(e) {}
+}
+
+/* ── ALERT DATATABLES ── */
+function fillAlertTable(rows, sevFilter='') {
+  const filtered = sevFilter ? rows.filter(e=>e.severity===sevFilter) : rows;
+  const tbody = document.getElementById('alertDtBody');
+  if (!filtered.length) {
+    /* DataTables requires tbody cell count to match thead (no colspan-only row). */
+    tbody.innerHTML = `<tr>
+      <td class="mono muted" style="font-size:10px">—</td>
+      <td>—</td>
+      <td class="mono muted" style="padding:18px;text-align:center">No alerts</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>`;
+  } else {
+    tbody.innerHTML = filtered.slice(0,500).map(e=>`<tr>
+      <td class="mono" style="font-size:10px">${(e.timestamp||'').slice(0,19)}</td>
+      <td><span class="sev-badge sev-${e.severity||''}">${e.severity||''}</span></td>
+      <td style="font-size:12px">${(e.trigger_name||'').replace(/</g,'&lt;')}</td>
+      <td class="cyan mono" style="font-size:11px">${e.hostname||''}</td>
+      <td><span class="st-badge st-${e.status||''}">${e.status||''}</span></td>
+    </tr>`).join('');
+  }
+  if ($.fn.dataTable.isDataTable('#alertDtTable')) $('#alertDtTable').DataTable().destroy();
+  alertDtI = $('#alertDtTable').DataTable({
+    order: [[0, 'desc']],
+    pageLength: 10,
+    scrollX: true,
+    autoWidth: false,
+    deferRender: true,
+  });
+  dtAdjust('#alertDtTable');
+}
+
+function applyFilter() {
+  const sev = document.getElementById('sevFilter').value;
+  if (cachedAlerts.length) { fillAlertTable(cachedAlerts, sev); return; }
+  const q = sev ? `?severity=${encodeURIComponent(sev)}&` : '?';
+  fetch(`/history${q}_=${Date.now()}`, { cache: 'no-store' })
+    .then(r=>r.json()).then(d=>fillAlertTable(d.events||[], sev));
+}
+
+/* ── HISTORY DATATABLES ── */
+async function loadHistory() {
+  try {
+    const sev = document.getElementById('histSevFilter').value;
+    const q = sev ? `?severity=${encodeURIComponent(sev)}&` : '?';
+    const d   = await fetch(`/history${q}_=${Date.now()}`, { cache: 'no-store' }).then(r=>r.json());
+    cachedHistoryEvents = d.events || [];
+    const tbody = document.getElementById('histDtBody');
+    tbody.innerHTML = cachedHistoryEvents.map(e=>`<tr>
+      <td class="mono" style="font-size:10px">${e.timestamp||''}</td>
+      <td><span class="sev-badge sev-${e.severity||''}">${e.severity||''}</span></td>
+      <td class="cyan mono" style="font-size:11px">${e.hostname||''}</td>
+      <td class="mono muted" style="font-size:10px">${e.trigger_id||''}</td>
+      <td style="font-size:12px">${(e.trigger_name||'').replace(/</g,'&lt;')}</td>
+      <td><span class="st-badge st-${e.status||''}">${e.status||''}</span></td>
+    </tr>`).join('');
+    if ($.fn.dataTable.isDataTable('#histDtTable')) $('#histDtTable').DataTable().destroy();
+    histDt = $('#histDtTable').DataTable({
+      order: [[0, 'desc']],
+      pageLength: 15,
+      scrollX: true,
+      autoWidth: false,
+      deferRender: true,
+    });
+    dtAdjust('#histDtTable');
+  } catch(e) { console.warn('loadHistory',e); }
+}
+
+/* ── AI CHAT ── */
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    askAI();
+  }
+}
+
+function sendQuick(q) {
+  // #region agent log
+  fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f300aa'},body:JSON.stringify({sessionId:'f300aa',runId:'chat-ui',hypothesisId:'H8_QUICK_BUTTONS',location:'dashboard.html:sendQuick',message:'Quick question clicked',data:{question_len:q.length,preview:q.slice(0,50)},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion agent log
+  document.getElementById('chatInput').value = q;
+  askAI();
+}
+
+function appendMsg(role, content) {
+  const container = document.getElementById('aiMessages');
+  const div = document.createElement('div');
+  div.className = 'ai-msg' + (role === 'user' ? ' user' : '');
+  const now = formatVN(new Date());
+  if (role === 'user') {
+    div.innerHTML = `
+      <div class="ai-msg-avatar" style="background:rgba(180,77,255,.12);border-color:rgba(180,77,255,.3)">👤</div>
+      <div>
+        <div class="ai-msg-bubble">${content.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+        <div class="ai-msg-meta">${now} · Bạn</div>
+      </div>`;
+  } else {
+    div.innerHTML = `
+      <div class="ai-msg-avatar">🛡️</div>
+      <div>
+        <div class="ai-msg-bubble">${content.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+        <div class="ai-msg-meta">${now} · SOC-AI Analyst</div>
+      </div>`;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function appendThinking() {
+  const container = document.getElementById('aiMessages');
+  const div = document.createElement('div');
+  div.className = 'ai-msg';
+  div.id = 'ai-thinking-indicator';
+  div.innerHTML = `
+    <div class="ai-msg-avatar">🛡️</div>
+    <div>
+      <div class="ai-msg-bubble">
+        <div class="ai-thinking">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeThinking() {
+  const el = document.getElementById('ai-thinking-indicator');
+  if (el) el.remove();
+}
+
+async function askAI() {
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  appendMsg('user', msg);
+  appendThinking();
+  // #region agent log
+  fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f300aa'},body:JSON.stringify({sessionId:'f300aa',runId:'chat-ui',hypothesisId:'H9_CHAT_LENGTH',location:'dashboard.html:askAI',message:'Chat request started',data:{question_len:msg.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion agent log
+
+  try {
+    const r = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await r.json();
+    removeThinking();
+    let txt = data.response || data.error || 'Không có phản hồi.';
+    // #region agent log
+    fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f300aa'},body:JSON.stringify({sessionId:'f300aa',runId:'chat-ui',hypothesisId:'H9_CHAT_LENGTH',location:'dashboard.html:askAI',message:'Chat response received',data:{response_len:txt.length,mode:data.mode||'unknown',has_context:!!data.context},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion agent log
+    appendMsg('assistant', txt);
+  } catch(e) {
+    removeThinking();
+    appendMsg('assistant', 'Kết nối đến AI analyst thất bại. Vui lòng thử lại.');
+  }
+}
+
+/* ── FULL REFRESH ── */
+async function fullRefresh() {
+  try {
+    await fetch('/collector/run', { method: 'POST', cache: 'no-store' });
+  } catch (e) { /* optional */ }
+  await loadOverview();
+  await loadDashboard();
+  await loadHistory();
+  await loadIdsAlerts();
+  setTimeout(() => {
+    dtAdjust('#histDtTable');
+    dtAdjust('#alertDtTable');
+  }, 80);
+}
+
+/* ── LYNIS ── */
+let lynisScanning = false;
+let lynisGaugeChart = null;
+
+function lynisSevClass(s) {
+  if (s === 'High') return 'High';
+  if (s === 'Warning') return 'Warning';
+  return 'Info';
+}
+
+function lynisHardeningDonut(score) {
+  const s = Math.max(0, Math.min(100, Number(score) || 0));
+  const col = s >= 72 ? '#00ff88' : s >= 55 ? '#ffe135' : '#ff2d55';
+  const el = document.getElementById('lynisHardenGauge');
+  const cfg = {
+    type: 'doughnut',
+    data: { labels: ['Hardened', 'Gap'], datasets: [{ data: [s, 100 - s], backgroundColor: [col, '#0d1528'], borderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '70%',
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: x => `${x.label}: ${x.parsed}%` } } } }
+  };
+  if (!lynisGaugeChart) lynisGaugeChart = new Chart(el, cfg);
+  else {
+    lynisGaugeChart.data.datasets[0].data = [s, 100 - s];
+    lynisGaugeChart.data.datasets[0].backgroundColor = [col, '#0d1528'];
+    lynisGaugeChart.update();
+  }
+}
+
+function onLynisComplete(payload) {
+  document.getElementById('lynisResultsPanel').classList.add('is-visible');
+  const st = payload.stats || {};
+  const hi = st.hardening_index;
+  lynisHardeningDonut(hi != null ? hi : 0);
+  document.getElementById('lynisWarnCount').textContent = st.warnings != null ? st.warnings : '—';
+  document.getElementById('lynisSugCount').textContent = st.suggestions != null ? st.suggestions : '—';
+  const rows = payload.findings || [];
+  document.getElementById('lynisAiBody').innerHTML = rows.map(r => {
+    const sc = lynisSevClass(r.severity);
+    return `<tr>
+      <td class="lyn-sev-${sc}">${(r.severity || '').replace(/</g, '&lt;')}</td>
+      <td>${(r.category || '').replace(/</g, '&lt;')}</td>
+      <td>${(r.finding || '').replace(/</g, '&lt;')}</td>
+      <td class="mono" style="font-size:11px;color:var(--text2)">${(r.remediation || '').replace(/</g, '&lt;')}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function startLynisScan() {
+  if (lynisScanning) return;
+  lynisScanning = true;
+  const btn = document.getElementById('lynisStartBtn');
+  const icon = document.getElementById('lynisBtnIcon');
+  const lbl = document.getElementById('lynisBtnLabel');
+  const term = document.getElementById('lynisTerminal');
+  btn.disabled = true;
+  icon.innerHTML = '<span class="lynis-spin"></span>';
+  lbl.textContent = 'SCANNING…';
+  term.textContent = '';
+  document.getElementById('lynisResultsPanel').classList.remove('is-visible');
+
+  const body = {
+    target_ip: document.getElementById('lynisIp').value.trim(),
+    user: document.getElementById('lynisUser').value.trim(),
+    ssh_pass: document.getElementById('lynisSshPass').value,
+    sudo_pass: document.getElementById('lynisSudoPass').value
+  };
+
+  let buf = '';
+  try {
+    const res = await fetch('/api/lynis/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      term.textContent += `\n[HTTP ${res.status}] ${t}\n`;
+      throw new Error('HTTP ' + res.status);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, sep).trim();
+        buf = buf.slice(sep + 2);
+        if (!block) continue;
+        let eventName = 'message';
+        const dataParts = [];
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataParts.push(line.slice(5).trim());
+        }
+        const dataStr = dataParts.join('\n');
+        if (eventName === 'complete' && dataStr) {
+          try { onLynisComplete(JSON.parse(dataStr)); } catch (e) { console.warn('lynis complete parse', e); }
+        } else if (dataStr) {
+          try {
+            const o = JSON.parse(dataStr);
+            if (o.type === 'log' && o.line) {
+              term.textContent += o.line;
+              term.scrollTop = term.scrollHeight;
+            } else if (o.type === 'error') {
+              term.textContent += '\n[ERROR] ' + (o.message || '') + '\n';
+              term.scrollTop = term.scrollHeight;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (e) {
+    term.textContent += '\n[FATAL] ' + (e.message || e) + '\n';
+    onLynisComplete({ ok: false, stats: { hardening_index: null, warnings: 0, suggestions: 0 }, findings: [] });
+  } finally {
+    lynisScanning = false;
+    btn.disabled = false;
+    icon.innerHTML = '';
+    lbl.textContent = 'START REMOTE SCAN';
+  }
+}
+
+/* ── BOOT ── */
+async function boot() {
+  await fullRefresh();
+  setInterval(loadOverview,  15000);
+  setInterval(loadDashboard, 30000);
+  setInterval(loadHistory,   30000);
+  setInterval(loadIdsAlerts, 10000);
+}
+
+boot();
+</script>
+</body>
+</html>

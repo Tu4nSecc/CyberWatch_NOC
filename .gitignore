@@ -1,0 +1,27 @@
+# Secrets - NEVER commit
+start_server.bat
+start_zabbix_telegram_notifier.local.bat
+.telegram.env.bat
+start_server.local_env.bat
+.env
+*.env
+
+# Local database (created at runtime; may contain sensitive data)
+soc_analytics.db
+
+# Cursor / IDE
+.cursor/
+
+# Runtime notifier state
+zabbix_telegram_notifier.state.json
+
+# Logs
+*.log
+soc_server.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
