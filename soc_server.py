@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 import os
@@ -43,6 +44,29 @@ SOC_CHAT_MODE = os.environ.get("SOC_CHAT_MODE", "local")
 LYNIS_REMOTE_ENABLED = os.environ.get("LYNIS_REMOTE_ENABLED", "1").strip().lower() in ("1", "true", "yes")
 SOC_INGEST_TOKEN = os.environ.get("SOC_INGEST_TOKEN", "")
 
+_DEBUG14EC6E_LOCK = threading.Lock()
+
+
+def _debug14ec6e_log(
+    *, run_id: str, hypothesis_id: str, location: str, message: str, data: Dict[str, Any]
+) -> None:
+    path = Path(__file__).resolve().parent / "debug-14ec6e.log"
+    payload = {
+        "sessionId": "14ec6e",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG14EC6E_LOCK:
+            path.open("a", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 DEBUG_LOG_PATH = Path(__file__).resolve().parent / "debug-9cf80c.log"
 DEBUG_LOCK = threading.Lock()
 AGENT_DEBUG_LOG_PATH = Path(__file__).resolve().parent / "debug-f300aa.log"
@@ -74,6 +98,72 @@ def _debug44_log(*, run_id: str, hypothesis_id: str, location: str, message: str
 # #endregion agent log
 
 
+# #region agent log
+_DEBUG839C50_LOCK = threading.Lock()
+
+
+def _debug839c50_log(*, run_id: str, hypothesis_id: str, location: str, message: str, data: Dict[str, Any]) -> None:
+    """Debug-mode evidence log (session 839c50). Do not log secrets."""
+    payload = {
+        "sessionId": "839c50",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with _DEBUG839C50_LOCK:
+            Path("debug-839c50.log").open("a", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion agent log
+
+
+# #region agent log
+_debug839c50_log(
+    run_id="import",
+    hypothesis_id="H_WAITRESS_IMPORT",
+    location="soc_server.py:module",
+    message="soc_server module imported (waitress should reach here)",
+    data={
+        "cwd": os.getcwd(),
+        "db_path": os.environ.get("SOC_ANALYTICS_DB_PATH", ""),
+        "zabbix_url": os.environ.get("ZABBIX_API_URL", ""),
+        "chat_mode": os.environ.get("SOC_CHAT_MODE", ""),
+    },
+)
+# #endregion agent log
+
+
+# #region agent log
+@app.before_request
+def _debug839c50_req_in() -> Any:
+    p = request.path or ""
+    if p in ("/", "/health") or p.startswith("/api/") or p.startswith("/collector/"):
+        _debug839c50_log(
+            run_id="req",
+            hypothesis_id="H_REQ_REACHES_SERVER",
+            location="soc_server.py:before_request",
+            message="Request received",
+            data={
+                "method": request.method,
+                "path": p,
+                "remote_addr": request.remote_addr,
+                "host": request.host,
+                "xff": request.headers.get("X-Forwarded-For", ""),
+                "ua": (request.headers.get("User-Agent", "")[:80]),
+            },
+        )
+    return None
+
+
+# #endregion agent log
+
+
 # #region debug89 agent log
 DEBUG89_LOG_PATH = Path(__file__).resolve().parent / "debug-89ebba.log"
 
@@ -95,6 +185,31 @@ def _debug89_log(*, run_id: str, hypothesis_id: str, location: str, message: str
 
 
 # #endregion debug89 agent log
+
+# #region agent log
+DEBUG115_LOG_PATH = Path(__file__).resolve().parent / "debug-115a22.log"
+DEBUG115_LOCK = threading.Lock()
+
+
+def _debug115_log(*, run_id: str, hypothesis_id: str, location: str, message: str, data: Dict[str, Any]) -> None:
+    """Session 115a22 NDJSON evidence (no secrets)."""
+    payload = {
+        "sessionId": "115a22",
+        "runId": run_id,
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with DEBUG115_LOCK:
+            DEBUG115_LOG_PATH.open("a", encoding="utf-8").write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion agent log
 
 ZABBIX_ITEM_KEYS: List[str] = [
     "system.cpu.util",
@@ -333,17 +448,19 @@ _TELEGRAM_NOTIFY_THREAD: Optional[threading.Thread] = None
 
 
 def _severity_text(sev: Any) -> str:
+    """Zabbix API trigger/problem severity integers (0–5)."""
     m = {
-        0: "Information",
-        1: "Warning",
-        2: "Average",
-        3: "High",
-        4: "Disaster",
+        0: "Not classified",
+        1: "Information",
+        2: "Warning",
+        3: "Average",
+        4: "High",
+        5: "Disaster",
     }
     try:
-        return m.get(int(sev), "Information")
+        return m.get(int(sev), "Not classified")
     except Exception:
-        return "Information"
+        return "Not classified"
 
 
 def _coerce_number(val: Any) -> Optional[float]:
@@ -766,6 +883,12 @@ def _local_soc_details() -> str:
     return "\n".join(out)
 
 def _collect_once(run_id: str) -> Dict[str, int]:
+    """
+    Thu thập Zabbix → SQLite. Luôn gọi Zabbix→Telegram ở `finally` để dù upsert lỗi giữa chừng,
+    các event đã có trong DB vẫn được notifier xử lý.
+    """
+    upserts = 0
+    problems: List[Dict[str, Any]] = []
     # #region agent log
     _debug_log(
         run_id=run_id,
@@ -776,119 +899,281 @@ def _collect_once(run_id: str) -> Dict[str, int]:
     )
     # #endregion agent log
 
-    token = ZABBIX.login()
-    # #region agent log
-    _debug_log(
-        run_id=run_id,
-        hypothesis_id="H1_API_LOGIN",
-        location="soc_server.py:_collect_once",
-        message="Zabbix login success",
-        data={"tokenPresent": bool(token), "authMode": getattr(ZABBIX, "_auth_mode", "unknown")},
-    )
-    # #endregion agent log
-
-    host_id = ZABBIX.host_id_by_name(ZABBIX_HOST_NAME)
-    items_map: Dict[str, Dict[str, Any]] = {}
-    if host_id:
-        items_map = ZABBIX.items_for_host(host_id, ZABBIX_ITEM_KEYS)
-
-    payload, _ = _build_host_snapshot(host_id, items_map)
-
-    problems = ZABBIX.problem_get(limit=300, min_severity=1)
-
-    # #region agent log
-    _debug_log(
-        run_id=run_id,
-        hypothesis_id="H2_PROBLEM_FORMAT",
-        location="soc_server.py:_collect_once",
-        message="Fetched problems from Zabbix",
-        data={
-            "problemCount": len(problems),
-            "sampleKeys": list((problems[0] if problems else {}).keys())[:20],
-        },
-    )
-    # #endregion agent log
-
-    upserts = 0
-    for p in problems:
-        event_id = str(p.get("eventid") or "")
-        if not event_id:
-            continue
-        if DB.is_zabbix_event_user_cleared(event_id):
-            continue
-        host = ((p.get("hosts") or [{}])[0]).get("name", "unknown")
-        name = p.get("name", "Unknown trigger")
-        severity = _severity_text(p.get("severity", 0))
-        ts_ms = int(float(p.get("clock", time.time())) * 1000)
-        status = "PROBLEM" if str(p.get("r_eventid") or "0") == "0" else "RESOLVED"
-
-        prev_analysis = DB.get_zabbix_event_analysis(event_id)
-        if prev_analysis:
-            analysis = prev_analysis
-        else:
-            analysis = explain_zabbix_alert(
-                {
-                    "trigger_name": name,
-                    "severity": severity,
-                    "hostname": host,
-                    "opdata": p.get("opdata", ""),
-                    "tags": p.get("tags", []),
-                }
-            )
-        DB.upsert_zabbix_event(
-            {
-                "event_id": event_id,
-                "trigger_id": str(p.get("objectid") or ""),
-                "trigger_name": name,
-                "severity": severity,
-                "hostname": host,
-                "status": status,
-                "description": p.get("opdata") or name,
-                "clock_ms": ts_ms,
-                "analysis": analysis,
-            }
+    try:
+        token = ZABBIX.login()
+        # #region agent log
+        _debug_log(
+            run_id=run_id,
+            hypothesis_id="H1_API_LOGIN",
+            location="soc_server.py:_collect_once",
+            message="Zabbix login success",
+            data={"tokenPresent": bool(token), "authMode": getattr(ZABBIX, "_auth_mode", "unknown")},
         )
-        upserts += 1
+        # #endregion agent log
 
-    m = payload.get("metrics") or {}
-    DB.insert_metric_point(
-        cpu=_coerce_number(m.get("system.cpu.util")),
-        ram=_coerce_number(m.get("vm.memory.utilization")),
-        net_in=_coerce_number(m.get('net.if.in["zttqhuceey"]')),
-    )
-    DB.insert_zabbix_snapshot(host_id=host_id, payload=payload)
+        host_id = ZABBIX.host_id_by_name(ZABBIX_HOST_NAME)
+        items_map: Dict[str, Dict[str, Any]] = {}
+        if host_id:
+            items_map = ZABBIX.items_for_host(host_id, ZABBIX_ITEM_KEYS)
 
-    # #region agent log
-    _debug_log(
-        run_id=run_id,
-        hypothesis_id="H3_DB_WRITE",
-        location="soc_server.py:_collect_once",
-        message="Collector cycle completed",
-        data={
-            "upserts": upserts,
-            "hostResolved": bool(host_id),
-            "keysFound": len([k for k in ZABBIX_ITEM_KEYS if k in items_map]),
-        },
-    )
-    # #endregion agent log
+        payload, _ = _build_host_snapshot(host_id, items_map)
 
-    _maybe_zabbix_telegram_notify()
+        problems = ZABBIX.problem_get(limit=300, min_severity=1)
+
+        # #region agent log
+        _debug_log(
+            run_id=run_id,
+            hypothesis_id="H2_PROBLEM_FORMAT",
+            location="soc_server.py:_collect_once",
+            message="Fetched problems from Zabbix",
+            data={
+                "problemCount": len(problems),
+                "sampleKeys": list((problems[0] if problems else {}).keys())[:20],
+            },
+        )
+        # #endregion agent log
+
+        for p in problems:
+            try:
+                event_id = str(p.get("eventid") or "")
+                if not event_id:
+                    continue
+                if DB.is_zabbix_event_user_cleared(event_id):
+                    continue
+                host = ((p.get("hosts") or [{}])[0]).get("name", "unknown")
+                name = p.get("name", "Unknown trigger")
+                severity = _severity_text(p.get("severity", 0))
+                ts_ms = int(float(p.get("clock", time.time())) * 1000)
+                status = "PROBLEM" if str(p.get("r_eventid") or "0") == "0" else "RESOLVED"
+
+                prev_analysis = DB.get_zabbix_event_analysis(event_id)
+                if prev_analysis:
+                    analysis = prev_analysis
+                else:
+                    analysis = explain_zabbix_alert(
+                        {
+                            "trigger_name": name,
+                            "severity": severity,
+                            "hostname": host,
+                            "opdata": p.get("opdata", ""),
+                            "tags": p.get("tags", []),
+                        }
+                    )
+                DB.upsert_zabbix_event(
+                    {
+                        "event_id": event_id,
+                        "trigger_id": str(p.get("objectid") or ""),
+                        "trigger_name": name,
+                        "severity": severity,
+                        "hostname": host,
+                        "status": status,
+                        "description": p.get("opdata") or name,
+                        "clock_ms": ts_ms,
+                        "analysis": analysis,
+                    }
+                )
+                upserts += 1
+            except Exception:
+                logger.exception(
+                    "Zabbix event upsert failed (eventid=%s); tiếp tục các problem khác",
+                    p.get("eventid"),
+                )
+
+        m = payload.get("metrics") or {}
+        DB.insert_metric_point(
+            cpu=_coerce_number(m.get("system.cpu.util")),
+            ram=_coerce_number(m.get("vm.memory.utilization")),
+            net_in=_coerce_number(m.get('net.if.in["zttqhuceey"]')),
+        )
+        DB.insert_zabbix_snapshot(host_id=host_id, payload=payload)
+
+        # #region agent log
+        _debug_log(
+            run_id=run_id,
+            hypothesis_id="H3_DB_WRITE",
+            location="soc_server.py:_collect_once",
+            message="Collector cycle completed",
+            data={
+                "upserts": upserts,
+                "hostResolved": bool(host_id),
+                "keysFound": len([k for k in ZABBIX_ITEM_KEYS if k in items_map]),
+            },
+        )
+        # #endregion agent log
+
+    finally:
+        try:
+            _maybe_zabbix_telegram_notify()
+        except Exception:
+            logger.exception("Zabbix Telegram notify failed (collector finally)")
     return {"inserted": upserts, "problem_count": len(problems)}
 
 
+_IDS_TG_BURST_LOCK = threading.Lock()
+_IDS_TG_BURST_LAST: Dict[str, float] = {}
+
+
+def _ids_telegram_burst_window_sec() -> float:
+    try:
+        return max(0.0, float(os.environ.get("TELEGRAM_IDS_BURST_SEC", "20") or "20"))
+    except Exception:
+        return 20.0
+
+
+def _ids_telegram_burst_key(alert_log: Dict[str, Any]) -> str:
+    src = str(alert_log.get("src_ip") or "").strip().lower()
+    dst = str(alert_log.get("dest_ip") or "").strip().lower()
+    return f"tg|{src}|{dst}"
+
+
+def _ids_telegram_burst_should_skip(alert_log: Dict[str, Any]) -> bool:
+    w = _ids_telegram_burst_window_sec()
+    if w <= 0:
+        return False
+    key = _ids_telegram_burst_key(alert_log)
+    if key == "tg||":
+        return False
+    now = time.monotonic()
+    with _IDS_TG_BURST_LOCK:
+        for k, t in list(_IDS_TG_BURST_LAST.items()):
+            if (now - t) > w * 6:
+                del _IDS_TG_BURST_LAST[k]
+        last = _IDS_TG_BURST_LAST.get(key)
+        return last is not None and (now - last) < w
+
+
+def _ids_telegram_burst_mark_sent(alert_log: Dict[str, Any]) -> None:
+    w = _ids_telegram_burst_window_sec()
+    if w <= 0:
+        return
+    key = _ids_telegram_burst_key(alert_log)
+    if key == "tg||":
+        return
+    with _IDS_TG_BURST_LOCK:
+        _IDS_TG_BURST_LAST[key] = time.monotonic()
+
+
+def _normalize_suricata_ts_for_parse(s: str) -> str:
+    """Suricata eve dùng +0000; datetime.fromisoformat cần +00:00."""
+    t = (s or "").strip().replace("Z", "+00:00")
+    if re.search(r"[+-]\d{4}$", t) and not re.search(r"[+-]\d{2}:\d{2}$", t):
+        t = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", t)
+    return t
+
+
+def _eve_ts_display_utc7(raw: str) -> str:
+    """Chuỗi thời gian eve.json → hiển thị giờ Việt Nam UTC+7 (cho Telegram)."""
+    s = (raw or "").strip()
+    if not s:
+        return "—"
+    try:
+        t = _normalize_suricata_ts_for_parse(s)
+        dt = datetime.fromisoformat(t)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(VN_TZ).strftime("%Y-%m-%d %H:%M:%S") + " (UTC+7)"
+    except Exception:
+        return s
+
+
+_ZABBIX_TG_MISSING_LOGGED = False
+
+
 def _maybe_zabbix_telegram_notify() -> None:
-    """Send Telegram when TELEGRAM_* env set (same as zabbix_telegram_notifier.py)."""
-    token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    """Send Telegram after collector (dung TELEGRAM_* env hoac mac dinh trong zabbix_telegram_notifier.py)."""
+    global _ZABBIX_TG_MISSING_LOGGED
+    from zabbix_telegram_notifier import run_cycle, telegram_credentials
+
+    token, chat_id = telegram_credentials()
     if not token or not chat_id:
+        if not _ZABBIX_TG_MISSING_LOGGED:
+            _ZABBIX_TG_MISSING_LOGGED = True
+            logger.warning(
+                "Zabbix Telegram disabled: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID in SOC process environment."
+            )
         return
     try:
-        from zabbix_telegram_notifier import run_cycle
-
         state_path = Path(__file__).resolve().parent / "zabbix_telegram_notifier.state.json"
         run_cycle(DB, state_path, token, chat_id)
     except Exception:
         logger.exception("Zabbix Telegram notify failed")
+
+
+def _maybe_suricata_ids_telegram(alert_log: Dict[str, Any], analysis: Dict[str, Any]) -> None:
+    """
+    Send Telegram for Suricata alerts ingested via POST /log when TELEGRAM_* is set on the SOC host.
+    Default off (IDS_TELEGRAM_FROM_SOC=0): forwarder usually sends — set IDS_TELEGRAM_FROM_SOC=1 to send from SOC too.
+    TELEGRAM_IDS_BURST_SEC (default 20): one Telegram per src→dst within this window for IDS messages.
+    """
+    raw = (os.environ.get("IDS_TELEGRAM_FROM_SOC") or "0").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return
+    from zabbix_telegram_notifier import _telegram_send, telegram_credentials
+
+    token, chat_id = telegram_credentials()
+    if not token or not chat_id:
+        return
+
+    a = alert_log.get("alert") if isinstance(alert_log.get("alert"), dict) else {}
+    signature = html.escape(str(a.get("signature") or "—").strip() or "—")
+    category = html.escape(str(a.get("category") or "—").strip() or "—")
+    attack_type = html.escape(str(analysis.get("attack_type") or "Unknown").strip())
+    severity = html.escape(str(analysis.get("severity") or "Medium").strip())
+    rec = html.escape(str(analysis.get("recommended_action") or "INVESTIGATE").strip())
+    src_ip = str(alert_log.get("src_ip") or "—")
+    dst_ip = str(alert_log.get("dest_ip") or "—")
+    sp = alert_log.get("src_port")
+    dp = alert_log.get("dest_port")
+    src = html.escape(f"{src_ip}:{sp}" if sp is not None else src_ip)
+    dst = html.escape(f"{dst_ip}:{dp}" if dp is not None else dst_ip)
+    proto = html.escape(str(alert_log.get("proto") or "—").strip().upper() or "—")
+    ts_raw = str(alert_log.get("timestamp") or "").strip()
+    ts_esc = html.escape(_eve_ts_display_utc7(ts_raw))
+
+    if _ids_telegram_burst_should_skip(alert_log):
+        logger.info(
+            "IDS Telegram burst skip | %s → %s (%.0fs)",
+            alert_log.get("src_ip"),
+            alert_log.get("dest_ip"),
+            _ids_telegram_burst_window_sec(),
+        )
+        return
+
+    text = (
+        "🚨 <b>SOC / Suricata IDS</b>\n"
+        "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
+        f"🕐 <b>Time</b>        {ts_esc}\n"
+        f"⚔️ <b>Attack</b>      {attack_type}\n"
+        f"📊 <b>Severity</b>    {severity}\n"
+        f"🛠 <b>Action</b>      {rec}\n"
+        f"📝 <b>Signature</b>\n<code>{signature}</code>\n"
+        f"📂 <b>Category</b>    {category}\n"
+        "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n"
+        f"🌐 <b>Src</b>  <code>{src}</code> → <b>Dst</b> <code>{dst}</code>\n"
+        f"🔗 <b>Proto</b>       {proto}\n"
+    )
+    # #region agent log
+    _debug14ec6e_log(
+        run_id="ids-ingest",
+        hypothesis_id="H_IDS_TG_ATTEMPT",
+        location="soc_server.py:_maybe_suricata_ids_telegram",
+        message="Sending IDS Telegram",
+        data={"attack_type": analysis.get("attack_type"), "severity": analysis.get("severity")},
+    )
+    # #endregion agent log
+    ok = bool(_telegram_send(token, chat_id, text))
+    # #region agent log
+    _debug14ec6e_log(
+        run_id="ids-ingest",
+        hypothesis_id="H_IDS_TG_RESULT",
+        location="soc_server.py:_maybe_suricata_ids_telegram",
+        message="IDS Telegram send finished",
+        data={"ok": ok},
+    )
+    # #endregion agent log
+    if ok:
+        _ids_telegram_burst_mark_sent(alert_log)
+        logger.info("Telegram IDS alert sent | %s | %s", analysis.get("attack_type"), analysis.get("severity"))
 
 
 def _collector_loop() -> None:
@@ -919,18 +1204,18 @@ def _start_collector() -> None:
 
 def _zabbix_telegram_embedded_loop() -> None:
     """Optional: same logic as zabbix_telegram_notifier.py when ZABBIX_TELEGRAM_EMBEDDED=1."""
-    token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    from zabbix_telegram_notifier import run_cycle, telegram_credentials
+
+    token, chat_id = telegram_credentials()
     if not token or not chat_id:
         return
     try:
         interval = max(8, int(os.environ.get("ZABBIX_NOTIFY_INTERVAL_SEC", "20")))
     except Exception:
         interval = 20
-    from zabbix_telegram_notifier import run_cycle
 
     state_path = Path(__file__).resolve().parent / "zabbix_telegram_notifier.state.json"
-    logger.info("Embedded Zabbix→Telegram loop started (interval=%ss)", interval)
+    logger.info("Embedded Zabbix->Telegram loop started (interval=%ss)", interval)
     while True:
         try:
             run_cycle(DB, state_path, token, chat_id)
@@ -943,7 +1228,10 @@ def _start_embedded_zabbix_telegram() -> None:
     global _TELEGRAM_NOTIFY_THREAD
     if os.environ.get("ZABBIX_TELEGRAM_EMBEDDED", "").strip().lower() not in ("1", "true", "yes", "on"):
         return
-    if not (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip():
+    from zabbix_telegram_notifier import telegram_credentials
+
+    _tok, _cid = telegram_credentials()
+    if not _tok or not _cid:
         return
     if _TELEGRAM_NOTIFY_THREAD and _TELEGRAM_NOTIFY_THREAD.is_alive():
         return
@@ -1010,6 +1298,7 @@ def ingest_suricata_log() -> Any:
             analysis = _ids_quick_ai(data)
             DB.insert_alert(data, analysis=analysis)
             DB.label_flows_for_alert(alert_log_data=data)
+            _maybe_suricata_ids_telegram(data, analysis)
             return (
                 jsonify(
                     {
@@ -1412,7 +1701,43 @@ def root() -> Any:
 if __name__ == "__main__":
     _start_collector()
     _start_embedded_zabbix_telegram()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # #region agent log
+    _debug14ec6e_log(
+        run_id="boot",
+        hypothesis_id="H_MAIN_REACHED",
+        location="soc_server.py:__main__",
+        message="about to app.run",
+        data={"host": "0.0.0.0", "port": 5000},
+    )
+    # #endregion agent log
+    # #region agent log
+    _debug839c50_log(
+        run_id="boot",
+        hypothesis_id="H1_ENTRY",
+        location="soc_server.py:__main__",
+        message="Reached __main__ (before binding)",
+        data={
+            "cwd": os.getcwd(),
+            "host": "0.0.0.0",
+            "port": 5000,
+            "db_path": DB_PATH,
+            "chat_mode": SOC_CHAT_MODE,
+        },
+    )
+    # #endregion agent log
+    try:
+        app.run(host="0.0.0.0", port=5000, debug=False)
+    except Exception as exc:
+        # #region agent log
+        _debug839c50_log(
+            run_id="boot",
+            hypothesis_id="H2_BIND_FAIL",
+            location="soc_server.py:app.run",
+            message="Failed to bind/run server",
+            data={"error": str(exc), "type": type(exc).__name__},
+        )
+        # #endregion agent log
+        raise
 
 
 _start_collector()

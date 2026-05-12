@@ -546,6 +546,7 @@
           <option>Information</option><option>Warning</option><option>Average</option><option>High</option><option>Disaster</option>
         </select>
         <button class="btn-soc sm" onclick="loadHistory()">FILTER</button>
+        <button class="btn-soc sm primary" onclick="refreshEventLog()">↻ Refresh</button>
         <button class="btn-soc sm danger" onclick="openClearHistoryModal()">✕ Clear Logs</button>
       </div>
     </div>
@@ -995,7 +996,11 @@ function parseRateLike(x) {
   if (!m) return null;
   const v = parseFloat(m[0]);
   if (!isFinite(v)) return null;
-  return Math.max(0, Math.round(v));
+  // If value is in bits per second (bps), convert to bytes/s for display.
+  // Zabbix net.if.in/out commonly use units "bps" (bits/s).
+  const isBps = /\bbps\b/i.test(s);
+  const bytes = isBps ? (v / 8.0) : v;
+  return Math.max(0, Math.round(bytes));
 }
 
 function rowValueByKey(rows, key) {
@@ -1100,12 +1105,17 @@ async function loadDashboard() {
       const netIn   = parseRateLike(sd.net_in);
       const netOut  = parseRateLike(sd.net_out);
 
+      // Fallback to row values if summary values are N/A or missing.
+      const rows = z.rows || null;
+      const netInFallback  = netIn  != null ? netIn  : parseRateLike(rowValueByKey(rows, 'net.if.in["zttqhuceey"]') + 'bps');
+      const netOutFallback = netOut != null ? netOut : parseRateLike(rowValueByKey(rows, 'net.if.out["zttqhuceey"]') + 'bps');
+
       if (diskPct != null) disk = diskPct;
-      if (netIn != null) document.getElementById('kpiNetIn').textContent = fmtBytes(netIn);
-      if (netOut != null) document.getElementById('kpiNetOut').textContent = fmtBytes(netOut);
+      if (netInFallback != null) document.getElementById('kpiNetIn').textContent = fmtBytes(netInFallback);
+      if (netOutFallback != null) document.getElementById('kpiNetOut').textContent = fmtBytes(netOutFallback);
 
       // #region agent log
-      fetch('http://127.0.0.1:7262/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'89ebba'},body:JSON.stringify({sessionId:'89ebba',runId:'dashboard-ui',hypothesisId:'H6_SUMMARY_PARSE',location:'dashboard.html:loadDashboard',message:'Parsed summary for disk/network',data:{disk_used_raw:sd.disk_used,net_in_raw:sd.net_in,net_out_raw:sd.net_out,diskPct,netIn,netOut},timestamp:Date.now()})}).catch(()=>{});
+      fetch('http://127.0.0.1:7775/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'839c50'},body:JSON.stringify({sessionId:'839c50',runId:'ui',hypothesisId:'H_NET_BPS_TO_BYTES',location:'dashboard.html:loadDashboard',message:'Parsed net bps and applied fallback',data:{sd_net_in:sd.net_in,sd_net_out:sd.net_out,netIn,netOut,netInFallback,netOutFallback},timestamp:Date.now()})}).catch(()=>{});
       // #endregion agent log
     } else {
       // Fallback: if forced to read rows, use updated keys.
@@ -1196,15 +1206,37 @@ async function loadDashboard() {
 
 /* ── IDS ALERT TAB ── */
 let _idsOnceLogged = false;
+function _normalizeIdsSeverity(sev) {
+  if (sev == null) return 'Medium';
+  // Suricata can be 1..4 (or string digits). Map to display labels.
+  const n = typeof sev === 'number' ? sev : (String(sev).match(/^\d+$/) ? Number(sev) : null);
+  if (n != null) {
+    if (n === 1) return 'Critical';
+    if (n === 2) return 'High';
+    if (n === 3) return 'Medium';
+    if (n === 4) return 'Low';
+    return 'Medium';
+  }
+  const s = String(sev || '').trim();
+  if (!s) return 'Medium';
+  const low = s.toLowerCase();
+  if (low === 'critical') return 'Critical';
+  if (low === 'high') return 'High';
+  if (low === 'medium') return 'Medium';
+  if (low === 'low') return 'Low';
+  return s;
+}
+
 function _sevBadgeClass(sev) {
-  if (sev === 'Critical') return 'sev-Disaster';
-  if (sev === 'High') return 'sev-High';
-  if (sev === 'Medium') return 'sev-Warning';
+  const s = _normalizeIdsSeverity(sev);
+  if (s === 'Critical') return 'sev-Disaster';
+  if (s === 'High') return 'sev-High';
+  if (s === 'Medium') return 'sev-Warning';
   return 'sev-Average';
 }
 
 function _actionBadgeClass(sev, action) {
-  const s = String(sev || '').toLowerCase();
+  const s = String(_normalizeIdsSeverity(sev) || '').toLowerCase();
   const a = String(action || '').toLowerCase();
   if (s === 'critical') return 'st-PROBLEM';
   if (s === 'high' && (a.includes('block') || a.includes('isolate') || a.includes('contain'))) return 'st-PROBLEM';
@@ -1213,7 +1245,7 @@ function _actionBadgeClass(sev, action) {
 }
 
 function _actionLabel(sev, action) {
-  const s = String(sev || '').toLowerCase();
+  const s = String(_normalizeIdsSeverity(sev) || '').toLowerCase();
   const a = String(action || '').toUpperCase().trim();
   if (a) return a;
   if (s === 'critical' || s === 'high') return 'CONTAIN + INVESTIGATE';
@@ -1231,7 +1263,7 @@ async function loadIdsAlerts() {
 
     const cnt = { total: rows.length, Critical: 0, High: 0, Medium: 0, Low: 0 };
     for (const a of rows) {
-      const s = a.severity || 'Medium';
+      const s = _normalizeIdsSeverity(a.severity);
       if (cnt[s] != null) cnt[s] += 1;
     }
     document.getElementById('idsTotal').textContent = cnt.total;
@@ -1252,10 +1284,14 @@ async function loadIdsAlerts() {
         <td class="mono" style="font-size:11px;color:var(--cyan2)">${a.dest_ip||''}${a.dest_port?(':'+a.dest_port):''}</td>
         <td style="font-size:12px">${(a.attack_type||'Unknown').replace(/</g,'&lt;')}</td>
         <td style="font-size:12px;color:#8aafcc;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(a.signature||'').replace(/\"/g,'&quot;')}">${(a.signature||'').replace(/</g,'&lt;')}</td>
-        <td><span class="sev-badge ${_sevBadgeClass(a.severity)}">${(a.severity||'').replace(/</g,'&lt;')}</span></td>
+        <td><span class="sev-badge ${_sevBadgeClass(a.severity)}">${(_normalizeIdsSeverity(a.severity)||'').replace(/</g,'&lt;')}</span></td>
         <td><span class="st-badge ${_actionBadgeClass(a.severity, a.recommended_action)}" style="border-color:rgba(0,212,255,.25);color:var(--cyan)">${_actionLabel(a.severity, a.recommended_action).replace(/</g,'&lt;')}</span></td>
       </tr>
     `).join('');
+
+    // #region agent log
+    fetch('http://127.0.0.1:7775/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'839c50'},body:JSON.stringify({sessionId:'839c50',runId:'ui',hypothesisId:'H_IDS_SEV_NORMALIZE',location:'dashboard.html:loadIdsAlerts',message:'IDS severities normalized and counted',data:{total:cnt.total,critical:cnt.Critical,high:cnt.High,medium:cnt.Medium,low:cnt.Low,sev_samples:(rows.slice(0,5).map(x=>x.severity))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion agent log
 
     if (!_idsOnceLogged) {
       _idsOnceLogged = true;
@@ -1507,6 +1543,14 @@ async function fullRefresh() {
     dtAdjust('#histDtTable');
     dtAdjust('#alertDtTable');
   }, 80);
+}
+
+async function refreshEventLog() {
+  // #region agent log
+  fetch('http://127.0.0.1:7775/ingest/03798cc5-bbd1-4a23-a64c-f1cd8d1b3a81',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'839c50'},body:JSON.stringify({sessionId:'839c50',runId:'ui',hypothesisId:'H_EVT_REFRESH_BTN',location:'dashboard.html:refreshEventLog',message:'Event log refresh clicked',data:{tab:'t-history'},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion agent log
+  await loadHistory();
+  setTimeout(() => dtAdjust('#histDtTable'), 60);
 }
 
 /* ── LYNIS ── */

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
 Poll SOC SQLite (zabbix_events) and send Telegram for Linux/Zabbix alerts only.
-Suricata IDS alerts stay with suricata_forwarder.
+Suricata IDS: suricata_forwarder.py sends Telegram when TELEGRAM_* is on the sensor (burst-deduped).
+Optional soc_server POST /log IDS Telegram: set IDS_TELEGRAM_FROM_SOC=1 on the SOC host (default 0; avoid both paths or you get duplicate chats).
 
 Sends once per (event_id, status) so both PROBLEM and RESOLVED are delivered
 if the collector updates the row (fixes "only RESOLVED in DB" missing Telegram).
 
 Environment:
-  TELEGRAM_BOT_TOKEN            (required)
-  TELEGRAM_CHAT_ID              (required)
+  TELEGRAM_BOT_TOKEN            (uu tien; neu trong thi dung gia tri mac dinh trong file)
+  TELEGRAM_CHAT_ID              (uu tien; neu trong thi dung gia tri mac dinh trong file)
   SOC_ANALYTICS_DB_PATH         (optional, default: soc_analytics.db)
   ZABBIX_NOTIFY_INTERVAL_SEC    (default: 15)
-  ZABBIX_NOTIFY_MIN_SEVERITY    (default: Warning) — Information is skipped
+  ZABBIX_NOTIFY_MIN_SEVERITY    (default: Information) — chỉ gửi từ mức đó trở lên (vd. Warning bỏ Information)
 
 Run:
   set TELEGRAM_BOT_TOKEN=...
@@ -25,6 +26,7 @@ import html
 import json
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -43,6 +45,18 @@ logger = logging.getLogger("ZabbixTelegramNotifier")
 
 DEFAULT_INTERVAL = 15
 STATE_NAME = "zabbix_telegram_notifier.state.json"
+
+# Lab default (khi khong set bien moi truong — vd. Waitress khong ke thua .bat). Doi token neu da lo.
+_DEFAULT_TELEGRAM_BOT_TOKEN = "8784905578:AAENtI143ed3qPMsaQverjfPIyXsjxYSNb4"
+_DEFAULT_TELEGRAM_CHAT_ID = "6929846070"
+
+
+def telegram_credentials() -> tuple[str, str]:
+    """TELEGRAM_* tu env; neu thieu thi dung hang mac dinh trong file."""
+    return (
+        (os.environ.get("TELEGRAM_BOT_TOKEN") or _DEFAULT_TELEGRAM_BOT_TOKEN).strip(),
+        (os.environ.get("TELEGRAM_CHAT_ID") or _DEFAULT_TELEGRAM_CHAT_ID).strip(),
+    )
 
 # ── Severity ranking ────────────────────────────────────────────────────────
 _SEVERITY_RANK = {
@@ -92,19 +106,21 @@ def _min_severity_rank() -> int:
 
 
 def _is_ids_or_suricata_trigger(name: str) -> bool:
+    """Chỉ lọc trigger IDS/Suricata thật — tránh chuỗi con ('et open', …) làm rơi cảnh báo Linux/Zabbix."""
     t = (name or "").lower()
     if not t:
         return False
-    needles = (
-        "suricata",
-        "eve.json",
-        "suricata ids",
-        "ids alert",
-        "et open",
-        "emerging threat",
-        "snort",
-    )
-    return any(n in t for n in needles)
+    if "suricata" in t or "eve.json" in t:
+        return True
+    if "suricata ids" in t or "ids alert" in t:
+        return True
+    if "emerging threat" in t:
+        return True
+    if re.search(r"\bsnort\b", t):
+        return True
+    if re.search(r"\bet\s+open\b", t):
+        return True
+    return False
 
 
 def _load_state(path: Path) -> Dict[str, Any]:
@@ -131,20 +147,28 @@ def _save_state(path: Path, state: Dict[str, Any]) -> None:
 def _telegram_send(token: str, chat_id: str, text: str) -> bool:
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        r = requests.post(
-            url,
-            json={
+        # Thử HTML trước; Telegram 400 (bad entity) → gửi lại không parse_mode.
+        payloads: List[Dict[str, Any]] = [
+            {
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
             },
-            timeout=35,
-        )
-        if r.status_code != 200:
-            logger.error("Telegram HTTP %s: %s", r.status_code, (r.text or "")[:400])
+            {"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+        ]
+        last_err = ""
+        for body in payloads:
+            r = requests.post(url, json=body, timeout=35)
+            if r.status_code == 200:
+                return True
+            last_err = (r.text or "")[:500]
+            if r.status_code == 400 and body.get("parse_mode") == "HTML":
+                logger.warning("Telegram từ chối HTML, thử plain text: %s", last_err)
+                continue
+            logger.error("Telegram HTTP %s: %s", r.status_code, last_err)
             return False
-        return True
+        return False
     except Exception as exc:
         logger.error("Telegram send failed: %s", exc)
         return False
@@ -261,45 +285,81 @@ def run_cycle(
 ) -> None:
     state = _load_state(state_path)
     sent: Set[str] = set(str(x) for x in (state.get("sent_keys") or []) if x)
+    sent_before = len(sent)
     min_rank = _min_severity_rank()
+    min_label = (os.environ.get("ZABBIX_NOTIFY_MIN_SEVERITY") or "Information").strip()
 
     events = _fetch_recent_events(db)
     # Oldest first so PROBLEM tends to notify before RESOLVED for same incident
     events = list(reversed(events))
 
+    candidates = 0
+    skipped_sev = 0
+    skipped_ids = 0
+    skipped_dup = 0
+    skipped_bad = 0
+
     for ev in events:
         eid = str(ev.get("event_id") or "").strip()
-        st  = str(ev.get("status")   or "").strip().upper()
+        st = str(ev.get("status") or "").strip().upper()
         if not eid or st not in ("PROBLEM", "RESOLVED"):
+            skipped_bad += 1
             continue
 
         name = str(ev.get("trigger_name") or "")
         if _is_ids_or_suricata_trigger(name):
+            skipped_ids += 1
             continue
 
         sev = str(ev.get("severity") or "")
         if _severity_rank(sev) < min_rank:
+            skipped_sev += 1
             continue
 
         key = f"{eid}|{st}"
         if key in sent:
+            skipped_dup += 1
             continue
 
+        candidates += 1
         text = _format_soc_message(ev)
         if _telegram_send(token, chat_id, text):
             sent.add(key)
             label = (name[:72] + "…") if len(name) > 72 else name
             logger.info("Telegram sent | %s | %s", key, label)
 
+    sent_after = len(sent)
+    new_keys = sent_after - sent_before
+    if new_keys:
+        logger.info(
+            "Zabbix->Telegram: da gui %d tin moi | DB_events=%d | min_severity=%s (rank>=%d)",
+            new_keys,
+            len(events),
+            min_label,
+            min_rank,
+        )
+    elif events:
+        logger.info(
+            "Zabbix->Telegram: khong co tin moi | DB_events=%d | min_severity=%s (rank>=%d) | "
+            "skip: sev=%d ids_filter=%d dup=%d bad_status=%d | candidates=%d",
+            len(events),
+            min_label,
+            min_rank,
+            skipped_sev,
+            skipped_ids,
+            skipped_dup,
+            skipped_bad,
+            candidates,
+        )
+
     state["sent_keys"] = sorted(sent)[-12000:]
     _save_state(state_path, state)
 
 
 def main() -> None:
-    token   = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-    chat_id = (os.environ.get("TELEGRAM_CHAT_ID")   or "").strip()
+    token, chat_id = telegram_credentials()
     if not token or not chat_id:
-        logger.error("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+        logger.error("Telegram token/chat empty after defaults")
         sys.exit(2)
 
     db_path = os.environ.get("SOC_ANALYTICS_DB_PATH", "").strip()

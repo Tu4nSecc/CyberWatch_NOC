@@ -148,7 +148,8 @@ class ZabbixClient:
             "limit": limit,
         }
         if min_severity > 0:
-            params["severities"] = [s for s in range(int(min_severity), 5)]
+            # Zabbix severities 1..5 (Information..Disaster); range must include 5.
+            params["severities"] = [s for s in range(int(min_severity), 6)]
 
         def _call(params_in: Dict[str, Any], hosts_mode: Optional[str]) -> List[Dict[str, Any]]:
             p = dict(params_in)

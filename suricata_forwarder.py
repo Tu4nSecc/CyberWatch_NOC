@@ -8,7 +8,9 @@ Usage:
   hoặc: python3 suricata_forwarder.py --url http://172.25.0.10:5000 --log /var/log/suricata/eve.json
 """
 
+import hashlib
 import os
+import re
 import sys
 import json
 import time
@@ -18,9 +20,9 @@ import requests
 import socket
 from collections import deque
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import threading
-from typing import Set
+from typing import Any, Dict, Set
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +42,145 @@ RETRY_ATTEMPTS = 3
 RETRY_DELAY = 2
 POLL_INTERVAL = 0.1
 REQUEST_TIMEOUT = int(os.environ.get("SOC_REQUEST_TIMEOUT", "45"))
+
+
+def _alert_dedupe_window_sec() -> float:
+    """0 = tắt dedupe. Suricata đôi khi ghi 2 dòng alert gần giống nhau → chỉ gửi SOC/Telegram một lần trong cửa sổ này."""
+    try:
+        v = float(os.environ.get("SURICATA_ALERT_DEDUPE_SEC", "5") or "5")
+    except Exception:
+        v = 5.0
+    return max(0.0, v)
+
+
+_ALERT_DEDUPE_LOCK = threading.Lock()
+_ALERT_DEDUPE_LAST: Dict[str, float] = {}
+
+
+def _norm_port(v: Any) -> str:
+    if v is None:
+        return "-"
+    try:
+        return str(int(v))
+    except (TypeError, ValueError):
+        s = str(v).strip()
+        return s if s else "-"
+
+
+def _alert_fingerprint(log_entry: dict) -> str:
+    """
+    Khóa dedupe ổn định cho burst Suricata: hai dòng eve thường cách ~1s nhưng timestamp khác giây,
+    hoặc một dòng có flow_id / pcap_cnt và dòng kia không — không dùng timestamp/pcap trong key,
+    chỉ dựa vào SURICATA_ALERT_DEDUPE_SEC (monotonic) để giới hạn thời gian gom trùng.
+    """
+    a = log_entry.get("alert") if isinstance(log_entry.get("alert"), dict) else {}
+    gid = int(a.get("gid") or 0)
+    sig_id = int(a.get("signature_id") or 0)
+    src = str(log_entry.get("src_ip") or "").strip().lower()
+    dst = str(log_entry.get("dest_ip") or "").strip().lower()
+    sp = _norm_port(log_entry.get("src_port"))
+    dp = _norm_port(log_entry.get("dest_port"))
+    pr = str(log_entry.get("proto") or "").strip().lower()
+    return f"v3|{src}|{dst}|{sp}|{dp}|{pr}|{gid}|{sig_id}"
+
+
+def _alert_dedupe_should_skip(log_entry: dict) -> bool:
+    """True nếu alert trùng fingerprint với bản vừa gửi SOC thành công trong cửa sổ dedupe."""
+    w = _alert_dedupe_window_sec()
+    if w <= 0:
+        return False
+    key = _alert_fingerprint(log_entry)
+    now = time.monotonic()
+    with _ALERT_DEDUPE_LOCK:
+        for k, t in list(_ALERT_DEDUPE_LAST.items()):
+            if (now - t) > w * 8:
+                del _ALERT_DEDUPE_LAST[k]
+        last = _ALERT_DEDUPE_LAST.get(key)
+        return last is not None and (now - last) < w
+
+
+def _alert_dedupe_on_soc_success(log_entry: dict) -> None:
+    """Gọi sau khi POST /log trả HTTP 200 cho event alert (tránh dedupe trước khi gửi thành công)."""
+    if log_entry.get("event_type") != "alert":
+        return
+    w = _alert_dedupe_window_sec()
+    if w <= 0:
+        return
+    key = _alert_fingerprint(log_entry)
+    with _ALERT_DEDUPE_LOCK:
+        _ALERT_DEDUPE_LAST[key] = time.monotonic()
+
+
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+def _normalize_suricata_ts_for_parse(s: str) -> str:
+    """Suricata eve dùng +0000 không có ':' — fromisoformat (Python 3.10) cần +00:00."""
+    t = (s or "").strip().replace("Z", "+00:00")
+    if re.search(r"[+-]\d{4}$", t) and not re.search(r"[+-]\d{2}:\d{2}$", t):
+        t = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", t)
+    return t
+
+
+def _eve_ts_display_utc7(raw: str) -> str:
+    """Timestamp eve.json → giờ Việt Nam UTC+7 (Telegram)."""
+    s = (raw or "").strip()
+    if not s:
+        return "—"
+    try:
+        t = _normalize_suricata_ts_for_parse(s)
+        dt = datetime.fromisoformat(t)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_VN_TZ).strftime("%Y-%m-%d %H:%M:%S") + " (UTC+7)"
+    except Exception:
+        return s
+
+
+_TG_BURST_LOCK = threading.Lock()
+_TG_BURST_LAST: Dict[str, float] = {}
+
+
+def _telegram_burst_window_sec() -> float:
+    try:
+        return max(0.0, float(os.environ.get("TELEGRAM_IDS_BURST_SEC", "20") or "20"))
+    except Exception:
+        return 20.0
+
+
+def _telegram_burst_key(log_entry: dict) -> str:
+    src = str(log_entry.get("src_ip") or "").strip().lower()
+    dst = str(log_entry.get("dest_ip") or "").strip().lower()
+    return f"tg|{src}|{dst}"
+
+
+def _telegram_burst_should_skip(log_entry: dict) -> bool:
+    """Một tin Telegram / cặp src→dst trong TELEGRAM_IDS_BURST_SEC (mặc định 20s) — nhiều rule cùng lúc chỉ 1 tin."""
+    w = _telegram_burst_window_sec()
+    if w <= 0:
+        return False
+    key = _telegram_burst_key(log_entry)
+    if key == "tg||":
+        return False
+    now = time.monotonic()
+    with _TG_BURST_LOCK:
+        for k, t in list(_TG_BURST_LAST.items()):
+            if (now - t) > w * 6:
+                del _TG_BURST_LAST[k]
+        last = _TG_BURST_LAST.get(key)
+        return last is not None and (now - last) < w
+
+
+def _telegram_burst_mark_sent(log_entry: dict) -> None:
+    w = _telegram_burst_window_sec()
+    if w <= 0:
+        return
+    key = _telegram_burst_key(log_entry)
+    if key == "tg||":
+        return
+    with _TG_BURST_LOCK:
+        _TG_BURST_LAST[key] = time.monotonic()
+
 
 # ─────────────────────────────────────────────
 # Debug instrumentation (NDJSON)
@@ -76,11 +217,29 @@ FORWARD_EVENT_TYPES = set(
     [x.strip() for x in os.environ.get("FORWARD_EVENT_TYPES", DEFAULT_FORWARD_EVENT_TYPES).split(",") if x.strip()]
 )
 
-TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
-TELEGRAM_CHAT_ID = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+# Telegram: biến môi trường TELEGRAM_* (nếu có) được ưu tiên; không có thì dùng giá trị mặc định bên dưới.
+# Cảnh báo: token trong source có thể lộ qua git/copy — nên dùng env trên production và đổi token nếu đã lộ.
+_TELEGRAM_DEFAULT_BOT_TOKEN = "8784905578:AAENtI143ed3qPMsaQverjfPIyXsjxYSNb4"
+_TELEGRAM_DEFAULT_CHAT_ID = "6929846070"
+TELEGRAM_BOT_TOKEN = (os.environ.get("TELEGRAM_BOT_TOKEN") or _TELEGRAM_DEFAULT_BOT_TOKEN).strip()
+TELEGRAM_CHAT_ID = (os.environ.get("TELEGRAM_CHAT_ID") or _TELEGRAM_DEFAULT_CHAT_ID).strip()
+_IDS_ALERT_TG_HINT_SHOWN = False
+
+
+_TG_BODY_LOCK = threading.Lock()
+_TG_LAST_BODY_HASH = ""
+_TG_LAST_BODY_MONO = 0.0
+
+
+def _telegram_message_dedupe_sec() -> float:
+    try:
+        return max(0.0, float(os.environ.get("TELEGRAM_MESSAGE_DEDUPE_SEC", "45") or "45"))
+    except Exception:
+        return 45.0
 
 
 def _telegram_send(text: str) -> bool:
+    global _TG_LAST_BODY_HASH, _TG_LAST_BODY_MONO
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         # #region agent log
         _debug_log(
@@ -92,6 +251,15 @@ def _telegram_send(text: str) -> bool:
         )
         # #endregion agent log
         return False
+    w = _telegram_message_dedupe_sec()
+    body_hash = ""
+    if w > 0:
+        body_hash = hashlib.sha256((text or "").encode("utf-8", errors="replace")).hexdigest()
+        now = time.monotonic()
+        with _TG_BODY_LOCK:
+            if body_hash == _TG_LAST_BODY_HASH and (now - _TG_LAST_BODY_MONO) < w:
+                logger.info("⏭️  Bỏ qua Telegram trùng nội dung (%.0fs) — không gọi API lần 2/3", w)
+                return True
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
         r = requests.post(
@@ -108,6 +276,10 @@ def _telegram_send(text: str) -> bool:
             data={"http_status": int(getattr(r, "status_code", 0) or 0), "ok": bool(getattr(r, "ok", False))},
         )
         # #endregion agent log
+        if r.status_code == 200 and w > 0 and body_hash:
+            with _TG_BODY_LOCK:
+                _TG_LAST_BODY_HASH = body_hash
+                _TG_LAST_BODY_MONO = time.monotonic()
         return r.status_code == 200
     except Exception as e:
         # #region agent log
@@ -123,6 +295,11 @@ def _telegram_send(text: str) -> bool:
 
 
 def send_log_to_soc(log_entry: dict, soc_url: str) -> bool:
+    global _IDS_ALERT_TG_HINT_SHOWN
+    if log_entry.get("event_type") == "alert" and _alert_dedupe_should_skip(log_entry):
+        dw = _alert_dedupe_window_sec()
+        logger.info("⏭️  Bỏ qua alert trùng (dedupe %.0fs) — cùng flow/signature trong cửa sổ ngắn", dw)
+        return True
     endpoint = f"{soc_url.rstrip('/')}/log"
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
@@ -162,97 +339,107 @@ def send_log_to_soc(log_entry: dict, soc_url: str) -> bool:
                     )
                     # Optional: Telegram for IDS alerts (only summary; no secrets)
                     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-                        def sev_emoji(s: str) -> str:
-                            x = (s or "").strip().lower()
-                            if x == "critical":
-                                return "🔴"
-                            if x == "high":
-                                return "🟠"
-                            if x == "medium":
+                        if _telegram_burst_should_skip(log_entry):
+                            logger.info(
+                                "⏭️  Bỏ qua Telegram burst (cùng src→dst trong %.0fs) — chỉ gửi một tin / đợt tấn công",
+                                _telegram_burst_window_sec(),
+                            )
+                        else:
+
+                            def sev_emoji(s: str) -> str:
+                                x = (s or "").strip().lower()
+                                if x == "critical":
+                                    return "🔴"
+                                if x == "high":
+                                    return "🟠"
+                                if x == "medium":
+                                    return "🟡"
+                                if x == "low":
+                                    return "🟢"
                                 return "🟡"
-                            if x == "low":
-                                return "🟢"
-                            return "🟡"
 
-                        def action_emoji(a: str) -> str:
-                            x = (a or "").strip().lower()
-                            if "block" in x:
-                                return "🚫"
-                            if "isolate" in x or "contain" in x:
-                                return "🛑"
-                            if "mitigate" in x or "ddos" in x:
-                                return "🛡️"
-                            if "monitor" in x:
-                                return "👁️"
-                            return "🔎"
+                            def action_emoji(a: str) -> str:
+                                x = (a or "").strip().lower()
+                                if "block" in x:
+                                    return "🚫"
+                                if "isolate" in x or "contain" in x:
+                                    return "🛑"
+                                if "mitigate" in x or "ddos" in x:
+                                    return "🛡️"
+                                if "monitor" in x:
+                                    return "👁️"
+                                return "🔎"
 
-                        def _ts(s: str) -> str:
-                            t = (s or "").strip()
-                            return t if t else "—"
+                            a = log_entry.get("alert") or {}
+                            src_ip = log_entry.get("src_ip") or "?"
+                            dst_ip = log_entry.get("dest_ip") or "?"
+                            src_p = log_entry.get("src_port")
+                            dst_p = log_entry.get("dest_port")
+                            proto = (log_entry.get("proto") or "").upper() or "—"
+                            signature = (a.get("signature") or "").strip() or "—"
+                            category = (a.get("category") or "").strip() or "—"
+                            attack_type = (result.get("attack_type") or "Unknown").strip()
+                            severity = (result.get("severity") or "Medium").strip()
+                            rec_action = (result.get("recommended_action") or "INVESTIGATE").strip()
+                            confidence = "Medium"
 
-                        a = log_entry.get("alert") or {}
-                        src_ip = log_entry.get("src_ip") or "?"
-                        dst_ip = log_entry.get("dest_ip") or "?"
-                        src_p = log_entry.get("src_port")
-                        dst_p = log_entry.get("dest_port")
-                        proto = (log_entry.get("proto") or "").upper() or "—"
-                        signature = (a.get("signature") or "").strip() or "—"
-                        category = (a.get("category") or "").strip() or "—"
-                        attack_type = (result.get("attack_type") or "Unknown").strip()
-                        severity = (result.get("severity") or "Medium").strip()
-                        rec_action = (result.get("recommended_action") or "INVESTIGATE").strip()
-                        confidence = "Medium"
+                            src = f"{src_ip}:{src_p}" if src_p else f"{src_ip}"
+                            dst = f"{dst_ip}:{dst_p}" if dst_p else f"{dst_ip}"
 
-                        src = f"{src_ip}:{src_p}" if src_p else f"{src_ip}"
-                        dst = f"{dst_ip}:{dst_p}" if dst_p else f"{dst_ip}"
+                            ts = _eve_ts_display_utc7(str(log_entry.get("timestamp") or ""))
 
-                        # Suricata usually provides ISO8601-like timestamp in eve.json for alerts.
-                        ts = _ts(str(log_entry.get("timestamp") or ""))
+                            analysis = (
+                                f"Hệ thống phát hiện cảnh báo từ IDS (Suricata): {signature}. "
+                                f"Khuyến nghị xử lý theo playbook SOC cho loại tấn công tương ứng."
+                            )
+                            mitigations = [
+                                "1. ⚡ Kiểm tra access log/web log tại thời điểm cảnh báo, xác định request cụ thể và payload.",
+                                "2. ⚡ Chặn nguồn tấn công ở WAF/Firewall nếu là IP bất thường hoặc có dấu hiệu lặp lại.",
+                                "3. Cập nhật rule/WAF và vá lỗ hổng ứng dụng (input validation, allowlist, encoding).",
+                            ]
 
-                        analysis = (
-                            f"Hệ thống phát hiện cảnh báo từ IDS (Suricata): {signature}. "
-                            f"Khuyến nghị xử lý theo playbook SOC cho loại tấn công tương ứng."
+                            msg = (
+                                "🚨 CẢNH BÁO BẢO MẬT - SOC ALERT 🚨\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"📅 Thời gian: {ts}\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                "⚔️ THÔNG TIN TẤN CÔNG\n"
+                                f"• Loại tấn công: {attack_type}\n"
+                                f"• Chữ ký IDS: {signature}\n"
+                                f"• Danh mục: {category}\n\n"
+                                "🌐 THÔNG TIN MẠNG\n"
+                                f"• Nguồn: {src}\n"
+                                f"• Đích: {dst}\n"
+                                f"• Giao thức: {proto}\n\n"
+                                "📊 ĐÁNH GIÁ AI\n"
+                                f"• Mức độ: {sev_emoji(severity)} {severity}\n"
+                                f"• Độ chắc chắn: {confidence}\n"
+                                f"• Hành động: {action_emoji(rec_action)} {rec_action}\n\n"
+                                "📝 PHÂN TÍCH\n"
+                                f"{analysis}\n\n"
+                                "🛡️ BIỆN PHÁP XỬ LÝ\n"
+                                "   " + "\n   ".join(mitigations) + "\n\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                                "🤖 Powered by SOC-AI System\n"
+                            )
+                            # #region agent log
+                            _debug_log(
+                                runId="pre",
+                                hypothesisId="H6_TG_SEND",
+                                location="suricata_forwarder.py:send_log_to_soc",
+                                message="Telegram message formatted",
+                                data={"len": len(msg), "severity": severity, "attack_type": attack_type},
+                            )
+                            # #endregion agent log
+                            if _telegram_send(msg):
+                                _telegram_burst_mark_sent(log_entry)
+                    elif not _IDS_ALERT_TG_HINT_SHOWN:
+                        _IDS_ALERT_TG_HINT_SHOWN = True
+                        logger.info(
+                            "Telegram không gửi từ forwarder (thiếu TELEGRAM_* trên máy này). "
+                            "Đặt TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID trên máy chạy SOC (Flask) để nhận tin khi có alert Suricata."
                         )
-                        mitigations = [
-                            "1. ⚡ Kiểm tra access log/web log tại thời điểm cảnh báo, xác định request cụ thể và payload.",
-                            "2. ⚡ Chặn nguồn tấn công ở WAF/Firewall nếu là IP bất thường hoặc có dấu hiệu lặp lại.",
-                            "3. Cập nhật rule/WAF và vá lỗ hổng ứng dụng (input validation, allowlist, encoding).",
-                        ]
-
-                        msg = (
-                            "🚨 CẢNH BÁO BẢO MẬT - SOC ALERT 🚨\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            f"📅 Thời gian: {ts}\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                            "⚔️ THÔNG TIN TẤN CÔNG\n"
-                            f"• Loại tấn công: {attack_type}\n"
-                            f"• Chữ ký IDS: {signature}\n"
-                            f"• Danh mục: {category}\n\n"
-                            "🌐 THÔNG TIN MẠNG\n"
-                            f"• Nguồn: {src}\n"
-                            f"• Đích: {dst}\n"
-                            f"• Giao thức: {proto}\n\n"
-                            "📊 ĐÁNH GIÁ AI\n"
-                            f"• Mức độ: {sev_emoji(severity)} {severity}\n"
-                            f"• Độ chắc chắn: {confidence}\n"
-                            f"• Hành động: {action_emoji(rec_action)} {rec_action}\n\n"
-                            "📝 PHÂN TÍCH\n"
-                            f"{analysis}\n\n"
-                            "🛡️ BIỆN PHÁP XỬ LÝ\n"
-                            "   " + "\n   ".join(mitigations) + "\n\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            "🤖 Powered by SOC-AI System\n"
-                        )
-                        # #region agent log
-                        _debug_log(
-                            runId="pre",
-                            hypothesisId="H6_TG_SEND",
-                            location="suricata_forwarder.py:send_log_to_soc",
-                            message="Telegram message formatted",
-                            data={"len": len(msg), "severity": severity, "attack_type": attack_type},
-                        )
-                        # #endregion agent log
-                        _telegram_send(msg)
+                    _alert_dedupe_on_soc_success(log_entry)
                 return True
 
             if response.status_code == 403:

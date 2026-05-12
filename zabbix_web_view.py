@@ -308,9 +308,10 @@ def _build_payload() -> Dict[str, Any]:
         "summary": {
             "cpu_util": _metric(mm, "system.cpu.util"),
             "ram_util": _metric(mm, "vm.memory.utilization"),
-            "disk_used": _metric(mm, "vfs.fs.size[/,pused]"),
-            "net_in": _metric(mm, "net.if.in[zttqhuceey]"),
-            "net_out": _metric(mm, "net.if.out[zttqhuceey]"),
+            # Keep summary keys aligned with KEYS (quotes/brackets matter).
+            "disk_used": _metric(mm, "vfs.fs.dependent.size[/,pused]"),
+            "net_in": _metric(mm, 'net.if.in["zttqhuceey"]'),
+            "net_out": _metric(mm, 'net.if.out["zttqhuceey"]'),
             "uptime": _fmt_uptime((mm.get("system.uptime") or {}).get("lastvalue")),
         },
         "rows": [
