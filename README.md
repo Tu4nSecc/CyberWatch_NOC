@@ -14,6 +14,9 @@
 
 ## Mục lục
 
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Giao diện dashboard](#giao-diện-dashboard)
+- [Video demo](#video-demo)
 - [Tổng quan hệ thống](#tổng-quan-hệ-thống)
 - [Kiến trúc & luồng dữ liệu](#kiến-trúc--luồng-dữ-liệu)
 - [Cấu trúc thư mục](#cấu-trúc-thư-mục)
@@ -24,10 +27,13 @@
 - [Tài liệu thêm](#tài-liệu-thêm)
 
 ---
+
 ## Kiến trúc hệ thống
+
 ![alt text](Images/architecture.png)
 
 ## Giao diện dashboard
+
 ![alt text](Images/image.png)
 ![alt text](Images/image-1.png)
 ![alt text](Images/image-2.png)
@@ -36,6 +42,19 @@
 ![alt text](Images/image-5.png)
 ![alt text](Images/image-6.png)
 ![alt text](Images/image-7.png)
+
+## Video demo
+
+Video demo ghi lại luồng vận hành chính của CyberWatch NOC: dashboard SOC, giám sát Zabbix, phân tích cảnh báo và theo dõi sự kiện bảo mật.
+
+<div align="center">
+
+<video src="./Demo/cyberwatch-noc-demo.mp4" controls width="100%"></video>
+
+**[Xem video demo CyberWatch NOC](./Demo/cyberwatch-noc-demo.mp4)**
+
+</div>
+
 ## Tổng quan hệ thống
 
 Dự án là một **trung tâm giám sát SOC** tập trung vào:
